@@ -139,6 +139,47 @@ WHERE e.is_published AND e.starts_at >= now() AND tt.quota > 0
 ]
 
 
+# Log alarmları (Loki). LogQL ifadesi tek bir sayı döndürür; sonuç yoksa (hiç hata yoksa) "OK".
+BACKEND = '{container=~"lhaabzf16e1csryupsbapana.*"}'
+HTTP = f'{BACKEND} | json logger, status, duration_ms | __error__="" | logger="bilet_api.http"'
+
+LOG_RULES = [
+    {
+        "uid": "bilet-log-5xx",
+        "title": "Backend 5xx hataları",
+        "expr": f"sum(count_over_time({HTTP} | status >= 500 [5m]))",
+        "op": "gt", "threshold": 5, "for": "0s", "severity": "kritik",
+        "summary": "Son 5 dakikada {{ $values.B.Value }} sunucu hatası (5xx)",
+        "description": "Backend 500 hatası veriyor. Grafana > Loglar panosundaki 'Backend uyarı ve hataları' "
+                       "bölümünden ayrıntıya bakın.",
+    },
+    {
+        "uid": "bilet-log-yavas",
+        "title": "API yavaşladı",
+        "expr": f'quantile_over_time(0.95, {HTTP} | unwrap duration_ms | __error__="" [10m]) by ()',
+        "op": "gt", "threshold": 1500, "for": "10m", "severity": "uyari",
+        "summary": "Son 10 dakikada isteklerin %5'i {{ humanize $values.B.Value }} ms'den uzun sürdü",
+        "description": "API yanıt süresi (p95) 1,5 saniyeyi aştı. Veritabanı ya da sunucu yükünü kontrol edin.",
+    },
+    {
+        "uid": "bilet-log-veritabani",
+        "title": "Veritabanı bağlantı hatası",
+        "expr": f'sum(count_over_time({BACKEND} |~ "OperationalError|connection timeout expired|could not connect|Connection refused" [5m]))',
+        "op": "gt", "threshold": 0, "for": "0s", "severity": "kritik",
+        "summary": "Backend son 5 dakikada {{ $values.B.Value }} kez veritabanına bağlanamadı",
+        "description": "bilet-db container'ı çalışıyor mu? Coolify'da veritabanının durumunu kontrol edin.",
+    },
+    {
+        "uid": "bilet-log-eposta",
+        "title": "Onay e-postası gönderilemedi",
+        "expr": f'sum(count_over_time({BACKEND} |= "e-posta gönderilemedi" [15m]))',
+        "op": "gt", "threshold": 0, "for": "0s", "severity": "uyari",
+        "summary": "Son 15 dakikada {{ $values.B.Value }} onay e-postası gönderilemedi",
+        "description": "SMTP ayarlarını ve e-posta servisini kontrol edin.",
+    },
+]
+
+
 # --------------------------------------------------------------------------- Grafana API
 
 
@@ -162,6 +203,23 @@ def _api(method: str, path: str, body=None, ok_404=False):
         sys.exit(f"HATA: {method} {path} -> {e.code}\n{detail}")
 
 
+def _query(rule: dict, ds_uid: str) -> dict:
+    if "expr" in rule:  # Loki
+        return {
+            "refId": "A",
+            "datasourceUid": ds_uid,
+            "relativeTimeRange": {"from": 900, "to": 0},
+            "model": {"refId": "A", "expr": rule["expr"], "queryType": "instant", "editorMode": "code"},
+        }
+    return {  # PostgreSQL
+        "refId": "A",
+        "datasourceUid": ds_uid,
+        "relativeTimeRange": {"from": 3600, "to": 0},
+        "model": {"refId": "A", "rawSql": rule["sql"].strip(), "format": "table",
+                  "rawQuery": True, "editorMode": "code"},
+    }
+
+
 def _rule_body(rule: dict, ds_uid: str) -> dict:
     return {
         "uid": rule["uid"],
@@ -176,13 +234,7 @@ def _rule_body(rule: dict, ds_uid: str) -> dict:
         "labels": {"proje": "bilet", "onem": rule["severity"]},
         "annotations": {"summary": rule["summary"], "description": rule["description"]},
         "data": [
-            {
-                "refId": "A",
-                "datasourceUid": ds_uid,
-                "relativeTimeRange": {"from": 3600, "to": 0},
-                "model": {"refId": "A", "rawSql": rule["sql"].strip(), "format": "table",
-                          "rawQuery": True, "editorMode": "code"},
-            },
+            _query(rule, ds_uid),
             {
                 "refId": "B",
                 "datasourceUid": "__expr__",
@@ -207,6 +259,13 @@ def main() -> None:
     ds_name = os.environ.get("GRAFANA_DATASOURCE", "bilet")
     ds = _api("GET", f"/api/datasources/name/{urllib.parse.quote(ds_name)}")
     print(f"Veri kaynağı: {ds['name']} ({ds['uid']})")
+    loki_name = os.environ.get("GRAFANA_LOKI_DATASOURCE", "loki")
+    loki = _api("GET", f"/api/datasources/name/{urllib.parse.quote(loki_name)}", ok_404=True)
+    if loki:
+        print(f"Log veri kaynağı: {loki['name']} ({loki['uid']})")
+    else:
+        print(f"'{loki_name}' veri kaynağı yok; log alarmları atlanıyor.")
+    rules = [(r, ds["uid"]) for r in RULES] + [(r, loki["uid"]) for r in LOG_RULES if loki]
 
     # Olmayan bir klasörü uid ile sormak bazı Grafana sürümlerinde 403 döndürüyor; listeye bakıyoruz.
     folders = _api("GET", "/api/folders?limit=1000") or []
@@ -214,8 +273,8 @@ def main() -> None:
         _api("POST", "/api/folders", {"uid": FOLDER_UID, "title": FOLDER_TITLE})
         print(f"Klasör oluşturuldu: {FOLDER_TITLE}")
 
-    for rule in RULES:
-        body = _rule_body(rule, ds["uid"])
+    for rule, ds_uid in rules:
+        body = _rule_body(rule, ds_uid)
         if _api("GET", f"/api/v1/provisioning/alert-rules/{rule['uid']}", ok_404=True) is None:
             _api("POST", "/api/v1/provisioning/alert-rules", body)
             print(f"  + {rule['title']}")
@@ -226,7 +285,7 @@ def main() -> None:
     group = _api("GET", f"/api/v1/provisioning/folder/{FOLDER_UID}/rule-groups/{GROUP}")
     group["interval"] = INTERVAL_SECONDS
     _api("PUT", f"/api/v1/provisioning/folder/{FOLDER_UID}/rule-groups/{GROUP}", group)
-    print(f"Tamam: {len(RULES)} alarm, {INTERVAL_SECONDS // 60} dakikada bir kontrol ediliyor.")
+    print(f"Tamam: {len(rules)} alarm, {INTERVAL_SECONDS // 60} dakikada bir kontrol ediliyor.")
 
 
 if __name__ == "__main__":
