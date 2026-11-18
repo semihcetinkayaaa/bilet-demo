@@ -80,11 +80,12 @@ CPU_CORES = f'count(node_cpu_seconds_total{{{NODE}, mode="idle"}})'
 
 panels = [
     # --- Anlık durum
-    gauge("CPU", f'100 * (1 - avg(rate(node_cpu_seconds_total{{{NODE}, mode="idle"}}[$__rate_interval])))', (0, 0, 4, 6)),
+    # Anlık (instant) sorgularda sabit 5m pencere: $__rate_interval burada 30 sn'lik ölçüm aralığına göre çok kısa kalıyor.
+    gauge("CPU", f'100 * (1 - avg(rate(node_cpu_seconds_total{{{NODE}, mode="idle"}}[5m])))', (0, 0, 4, 6)),
     gauge("RAM", f"100 * (1 - node_memory_MemAvailable_bytes{{{NODE}}} / node_memory_MemTotal_bytes{{{NODE}}})", (4, 0, 4, 6),
           description="Kullanılan bellek (önbellek hariç; Linux boş belleği önbellek için kullanır, bu normaldir)."),
     gauge("Disk (/)", f"100 * (1 - node_filesystem_avail_bytes{{{ROOT_FS}}} / node_filesystem_size_bytes{{{ROOT_FS}}})", (8, 0, 4, 6)),
-    stat("Yük (1 dk) / çekirdek", f"node_load1{{{NODE}}} / {CPU_CORES}", (12, 0, 4, 3), unit="percentunit", decimals=0,
+    stat("Yük (1 dk) / çekirdek", f"node_load1{{{NODE}}} / scalar({CPU_CORES})", (12, 0, 4, 3), unit="percentunit", decimals=0,
          color="purple", description="1'in (100%) üstü: işlemciler yetişemiyor, işler sırada bekliyor."),
     stat("Çekirdek", CPU_CORES, (12, 3, 4, 3), color="blue"),
     stat("Açık kalma süresi", f"time() - node_boot_time_seconds{{{NODE}}}", (16, 0, 4, 3), unit="s", decimals=0, color="green"),
@@ -107,7 +108,7 @@ panels = [
                      for n, c in [("Kullanılan", "red"), ("Önbellek", "blue"), ("Kullanılabilir", "green")]]),
     panel("timeseries", "Sistem yükü",
           [target(f"node_load1{{{NODE}}}", "1 dk"), target(f"node_load5{{{NODE}}}", "5 dk"),
-           target(f"node_load15{{{NODE}}}", "15 dk"), target(CPU_CORES, "Çekirdek sayısı")],
+           target(f"node_load15{{{NODE}}}", "15 dk"), target(f"scalar({CPU_CORES})", "Çekirdek sayısı")],
           (0, 14, 8, 8), options=TS_OPTS, field_config={"min": 0},
           overrides=[{"matcher": {"id": "byName", "options": "Çekirdek sayısı"},
                       "properties": [{"id": "custom.lineStyle", "value": {"fill": "dash", "dash": [10, 10]}},

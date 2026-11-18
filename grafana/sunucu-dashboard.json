@@ -58,7 +58,7 @@
             "uid": "${DS_PROM}"
           },
           "editorMode": "code",
-          "expr": "100 * (1 - avg(rate(node_cpu_seconds_total{job=\"node\", mode=\"idle\"}[$__rate_interval])))",
+          "expr": "100 * (1 - avg(rate(node_cpu_seconds_total{job=\"node\", mode=\"idle\"}[5m])))",
           "legendFormat": "",
           "instant": true,
           "range": false,
@@ -256,7 +256,7 @@
             "uid": "${DS_PROM}"
           },
           "editorMode": "code",
-          "expr": "node_load1{job=\"node\"} / count(node_cpu_seconds_total{job=\"node\", mode=\"idle\"})",
+          "expr": "node_load1{job=\"node\"} / scalar(count(node_cpu_seconds_total{job=\"node\", mode=\"idle\"}))",
           "legendFormat": "",
           "instant": true,
           "range": false,
@@ -793,7 +793,7 @@
             "uid": "${DS_PROM}"
           },
           "editorMode": "code",
-          "expr": "count(node_cpu_seconds_total{job=\"node\", mode=\"idle\"})",
+          "expr": "scalar(count(node_cpu_seconds_total{job=\"node\", mode=\"idle\"}))",
           "legendFormat": "Çekirdek sayısı",
           "instant": false,
           "range": true,
