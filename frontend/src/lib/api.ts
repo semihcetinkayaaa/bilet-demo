@@ -71,10 +71,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-export function getEvents(filters: { category?: string; city?: string } = {}) {
+export function getEvents(filters: { category?: string; city?: string; q?: string } = {}) {
   const qs = new URLSearchParams();
   if (filters.category) qs.set("category", filters.category);
   if (filters.city) qs.set("city", filters.city);
+  if (filters.q) qs.set("q", filters.q.slice(0, 100));
   const q = qs.toString();
   return request<EventSummary[]>(`/events${q ? `?${q}` : ""}`);
 }

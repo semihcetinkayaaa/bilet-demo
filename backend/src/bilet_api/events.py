@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from bilet_api.db import get_session
@@ -44,6 +44,38 @@ def to_detail(event: Event) -> EventDetail:
     )
 
 
+# Türkçe karakterleri sadeleştirir: "Rüzgârın Kızı" ve "ruzgarin kizi" aynı şekilde aranır.
+_TR_FROM = "çğıöşüâîû"
+_TR_TO = "cgiosuaiu"
+_TR_TABLE = str.maketrans(_TR_FROM, _TR_TO)
+
+
+def _fold_text(s: str) -> str:
+    # Python'da "İ".lower() -> "i̇" (i + birleşik nokta); noktayı atıyoruz.
+    return s.replace("İ", "i").replace("I", "ı").lower().translate(_TR_TABLE).replace("̇", "")
+
+
+def _fold_sql(col):
+    # PostgreSQL tarafında aynı sadeleştirme (lower + Türkçe harf eşleme).
+    return func.replace(func.translate(func.lower(col), _TR_FROM, _TR_TO), "̇", "")
+
+
+def _search_filter(q: str):
+    words = [w for w in _fold_text(q).split() if w][:5]
+    conditions = []
+    for w in words:
+        pattern = "%" + w.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+        conditions.append(
+            or_(
+                _fold_sql(Event.title).like(pattern, escape="\\"),
+                _fold_sql(Venue.name).like(pattern, escape="\\"),
+                _fold_sql(Venue.city).like(pattern, escape="\\"),
+                _fold_sql(func.coalesce(Event.description, "")).like(pattern, escape="\\"),
+            )
+        )
+    return and_(*conditions) if conditions else None
+
+
 def _upcoming():
     return (
         select(Event)
@@ -57,13 +89,16 @@ def list_events(
     session: SessionDep,
     category: EventCategory | None = None,
     city: Annotated[str | None, Query(max_length=100)] = None,
+    q: Annotated[str | None, Query(max_length=100, description="etkinlik, mekan, şehir veya açıklamada arar")] = None,
 ) -> list[EventSummary]:
     """Yaklaşan, yayındaki etkinlikler; tarihe göre sıralı."""
-    stmt = _upcoming().order_by(Event.starts_at)
+    stmt = _upcoming().join(Event.venue).order_by(Event.starts_at)
     if category:
         stmt = stmt.where(Event.category == category)
     if city:
-        stmt = stmt.join(Event.venue).where(Venue.city == city)
+        stmt = stmt.where(Venue.city == city)
+    if q and (search := _search_filter(q)) is not None:
+        stmt = stmt.where(search)
     return [to_summary(e) for e in session.scalars(stmt)]
 
 
