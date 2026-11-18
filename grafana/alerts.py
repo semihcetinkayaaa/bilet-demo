@@ -145,6 +145,9 @@ def _api(method: str, path: str, body=None, ok_404=False):
     url = os.environ.get("GRAFANA_URL", "https://grafana.semihcetinkaya.tech").rstrip("/") + path
     req = urllib.request.Request(url, method=method, data=json.dumps(body).encode() if body is not None else None)
     req.add_header("Authorization", f"Bearer {os.environ['GRAFANA_TOKEN']}")
+    # Cloudflare, Python'un varsayılan "Python-urllib" kimliğini bot sayıp engelliyor (hata 1010).
+    req.add_header("User-Agent", "Mozilla/5.0 (compatible; bilet-alarm-yukleyici/1.0)")
+    req.add_header("Accept", "application/json")
     req.add_header("Content-Type", "application/json")
     req.add_header("X-Disable-Provenance", "true")  # kurallar Grafana arayüzünden de düzenlenebilsin
     try:
