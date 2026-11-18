@@ -11,6 +11,7 @@ aynı anda gelen iki ödeme son bileti birlikte alamaz. Veritabanındaki CHECK k
 ikinci bir güvence.
 """
 
+import logging
 from datetime import UTC, datetime
 from typing import Annotated
 
@@ -32,6 +33,8 @@ from bilet_api.schemas import (
 )
 
 router = APIRouter(prefix="/orders", tags=["siparişler"])
+# Sipariş olayları; kişisel veri (isim, e-posta, kart) loglanmaz.
+log = logging.getLogger("bilet_api.orders")
 SessionDep = Annotated[Session, Depends(get_session)]
 
 # Dummy ödeme kuralı: bu numarayla biten kartlar reddedilir (test için).
@@ -136,7 +139,28 @@ def create_order(body: OrderCreate, session: SessionDep) -> OrderOut:
         order.items.append(OrderItem(ticket_type=tt, quantity=item.quantity, unit_price=tt.price))
     session.add(order)
     session.commit()
+    log.info(
+        "order_created",
+        extra={
+            "order_code": order.code,
+            "event_id": event.id,
+            "category": event.category.value,
+            "tickets": sum(i.quantity for i in body.items),
+            "amount": float(order.total_amount),
+        },
+    )
     return _to_out(_load(session, order.code))
+
+
+def _order_log_fields(order: Order) -> dict:
+    event = order.items[0].ticket_type.event
+    return {
+        "order_code": order.code,
+        "event_id": event.id,
+        "category": event.category.value,
+        "tickets": sum(i.quantity for i in order.items),
+        "amount": float(order.total_amount),
+    }
 
 
 @router.get("/{code}", response_model=OrderOut)
@@ -156,15 +180,18 @@ def pay_order(
         raise HTTPException(409, "Bu sipariş artık ödenemez")
 
     event = order.items[0].ticket_type.event
+    fields = _order_log_fields(order)
     if event.starts_at < datetime.now(UTC):
         order.status = OrderStatus.CANCELLED
         session.commit()
+        log.warning("payment_event_started", extra=fields)
         raise HTTPException(409, "Etkinliğin satışı sona erdi")
 
     digits = body.card_number.replace(" ", "")
     if digits.endswith(DECLINED_CARD_SUFFIX):
         order.status = OrderStatus.FAILED
         session.commit()
+        log.warning("payment_declined", extra=fields)
         raise HTTPException(402, "Ödeme reddedildi (demo test kartı)")
 
     # Kontenjanı atomik olarak düşür; biri bile yetmezse hepsini geri al.
@@ -183,11 +210,13 @@ def pay_order(
             failed = _load(session, code.upper(), for_update=True)
             failed.status = OrderStatus.FAILED
             session.commit()
+            log.warning("payment_sold_out", extra={**fields, "ticket_type": sold_out_name})
             raise HTTPException(409, f"'{sold_out_name}' biletleri tükendi")
 
     order.status = OrderStatus.PAID
     order.paid_at = datetime.now(UTC)
     session.commit()
+    log.info("payment_succeeded", extra=fields)
     background.add_task(send_order_confirmation, order.id)
 
     session.expire_all()

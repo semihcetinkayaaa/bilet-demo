@@ -5,7 +5,6 @@ Yerelde çalıştırmak için (backend klasöründe, SSH tüneli açıkken):
 Belgeler ve deneme sayfası: http://127.0.0.1:8000/docs
 """
 
-import logging
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException
@@ -16,8 +15,9 @@ from sqlalchemy.orm import Session
 from bilet_api import events, orders
 from bilet_api.config import settings
 from bilet_api.db import get_session
+from bilet_api.logging_setup import RequestLogMiddleware, setup_logging
 
-logging.basicConfig(level=logging.INFO)
+setup_logging()
 
 app = FastAPI(
     title=f"{settings.brand_name} Bilet API",
@@ -30,8 +30,9 @@ app.add_middleware(
     allow_origins=settings.cors_origin_list,
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
-    expose_headers=["X-Total-Count"],
+    expose_headers=["X-Total-Count", "X-Request-ID"],
 )
+app.add_middleware(RequestLogMiddleware)
 
 app.include_router(events.router)
 app.include_router(orders.router)
