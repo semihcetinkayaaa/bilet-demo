@@ -180,6 +180,47 @@ LOG_RULES = [
 ]
 
 
+# Sunucu alarmları (Prometheus: node-exporter + cAdvisor)
+SERVER_RULES = [
+    {
+        "uid": "sunucu-disk",
+        "title": "Disk doluyor",
+        "promql": '100 * (1 - node_filesystem_avail_bytes{job="node", mountpoint="/"} '
+                  '/ node_filesystem_size_bytes{job="node", mountpoint="/"})',
+        "op": "gt", "threshold": 85, "for": "10m", "severity": "kritik",
+        "summary": "Sunucu diski %{{ humanize $values.B.Value }} dolu",
+        "description": "Disk %85'i geçti. Docker imajlarını temizlemek için sunucuda: docker system prune -a "
+                       "(dikkat: kullanılmayan tüm imajları siler). Log ve metrik saklama sürelerini de gözden geçirin.",
+    },
+    {
+        "uid": "sunucu-ram",
+        "title": "Bellek tükeniyor",
+        "promql": '100 * (1 - node_memory_MemAvailable_bytes{job="node"} / node_memory_MemTotal_bytes{job="node"})',
+        "op": "gt", "threshold": 90, "for": "10m", "severity": "uyari",
+        "summary": "Sunucu belleğinin %{{ humanize $values.B.Value }}'ı kullanımda",
+        "description": "Kullanılabilir bellek %10'un altında; swap olmadığı için bir servis kapatılabilir. "
+                       "Sunucu panosundaki 'Container bellek kullanımı' grafiğinden hangi servisin şiştiğine bakın.",
+    },
+    {
+        "uid": "sunucu-cpu",
+        "title": "CPU uzun süre yüksek",
+        "promql": '100 * (1 - avg(rate(node_cpu_seconds_total{job="node", mode="idle"}[5m])))',
+        "op": "gt", "threshold": 90, "for": "15m", "severity": "uyari",
+        "summary": "CPU 15 dakikadır %{{ humanize $values.B.Value }} seviyesinde",
+        "description": "İşlemci 15 dakikadır %90'ın üzerinde. Sunucu panosundaki 'Container CPU kullanımı' grafiğine bakın.",
+    },
+    {
+        "uid": "sunucu-metrik-yok",
+        "title": "Sunucu metrikleri gelmiyor",
+        # max() etiketleri siler; böylece "or vector(0)" sadece hiç veri yokken devreye girer.
+        "promql": 'max(up{job="node"}) or vector(0)',
+        "op": "lt", "threshold": 1, "for": "5m", "severity": "kritik",
+        "summary": "node-exporter'dan 5 dakikadır veri alınamıyor",
+        "description": "Sunucu ya da 'metrikler' servisi çalışmıyor olabilir. Coolify'da durumunu kontrol edin.",
+    },
+]
+
+
 # --------------------------------------------------------------------------- Grafana API
 
 
@@ -204,6 +245,13 @@ def _api(method: str, path: str, body=None, ok_404=False):
 
 
 def _query(rule: dict, ds_uid: str) -> dict:
+    if "promql" in rule:  # Prometheus
+        return {
+            "refId": "A",
+            "datasourceUid": ds_uid,
+            "relativeTimeRange": {"from": 600, "to": 0},
+            "model": {"refId": "A", "expr": rule["promql"], "instant": True, "range": False, "editorMode": "code"},
+        }
     if "expr" in rule:  # Loki
         return {
             "refId": "A",
@@ -265,7 +313,17 @@ def main() -> None:
         print(f"Log veri kaynağı: {loki['name']} ({loki['uid']})")
     else:
         print(f"'{loki_name}' veri kaynağı yok; log alarmları atlanıyor.")
-    rules = [(r, ds["uid"]) for r in RULES] + [(r, loki["uid"]) for r in LOG_RULES if loki]
+    prom_name = os.environ.get("GRAFANA_PROMETHEUS_DATASOURCE", "prometheus")
+    prom = _api("GET", f"/api/datasources/name/{urllib.parse.quote(prom_name)}", ok_404=True)
+    if prom:
+        print(f"Metrik veri kaynağı: {prom['name']} ({prom['uid']})")
+    else:
+        print(f"'{prom_name}' veri kaynağı yok; sunucu alarmları atlanıyor.")
+    rules = (
+        [(r, ds["uid"]) for r in RULES]
+        + [(r, loki["uid"]) for r in LOG_RULES if loki]
+        + [(r, prom["uid"]) for r in SERVER_RULES if prom]
+    )
 
     # Olmayan bir klasörü uid ile sormak bazı Grafana sürümlerinde 403 döndürüyor; listeye bakıyoruz.
     folders = _api("GET", "/api/folders?limit=1000") or []

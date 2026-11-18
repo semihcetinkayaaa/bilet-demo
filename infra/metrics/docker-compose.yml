@@ -1,0 +1,89 @@
+# Sunucu metrikleri: Prometheus (depo) + node-exporter (sunucu) + cAdvisor (container'lar)
+#
+# Coolify'da: Projeye "+ New" > "Docker Compose Empty" > bu dosyanın içeriğini yapıştır.
+# Ayarlarda "Connect To Predefined Network" açık olmalı (Grafana Prometheus'a 'coolify' ağı üzerinden ulaşır).
+# Dışarıya port ya da alan adı AÇILMAZ: bu servislerde kimlik doğrulama yok.
+#
+# Notlar:
+# - node-exporter sunucunun /proc, /sys ve kök dosya sistemini SALT OKUNUR görür.
+# - cAdvisor container istatistiklerini okuyabilmek için "privileged" çalışır (resmi kurulum yöntemi).
+# - Sunucu geneli ağ trafiği, container'ların toplam trafiğinden (cAdvisor) hesaplanır.
+
+services:
+  prometheus:
+    image: prom/prometheus:v3.4.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=30d
+      - --storage.tsdb.retention.size=8GB
+      - --web.enable-lifecycle
+    configs:
+      - source: prometheus_config
+        target: /etc/prometheus/prometheus.yml
+    volumes:
+      - prometheus-data:/prometheus
+    restart: unless-stopped
+    depends_on:
+      - node-exporter
+      - cadvisor
+
+  node-exporter:
+    image: prom/node-exporter:v1.9.1
+    command:
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --path.rootfs=/rootfs
+      - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|run|var/lib/docker/.+|var/lib/containerd/.+|snap/.+)($$|/)
+      - --collector.filesystem.fs-types-exclude=^(tmpfs|devtmpfs|overlay|squashfs|nsfs|proc|sysfs|cgroup2?|autofs|fuse.*)$$
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro,rslave
+    pid: host
+    restart: unless-stopped
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    command:
+      - --docker_only=true
+      - --housekeeping_interval=30s
+      - --store_container_labels=false
+      - --disable_metrics=advtcp,cpu_topology,cpuset,hugetlb,memory_numa,percpu,process,referenced_memory,resctrl,sched,tcp,udp
+    privileged: true
+    devices:
+      - /dev/kmsg
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    restart: unless-stopped
+
+volumes:
+  prometheus-data:
+
+configs:
+  prometheus_config:
+    content: |
+      global:
+        scrape_interval: 30s
+        evaluation_interval: 30s
+
+      scrape_configs:
+        - job_name: node
+          static_configs:
+            - targets: ["node-exporter:9100"]
+              labels:
+                instance: vps
+
+        - job_name: cadvisor
+          static_configs:
+            - targets: ["cadvisor:8080"]
+              labels:
+                instance: vps
+
+        - job_name: prometheus
+          static_configs:
+            - targets: ["localhost:9090"]
