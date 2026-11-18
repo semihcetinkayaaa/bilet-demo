@@ -1,0 +1,95 @@
+// Backend (FastAPI) ile konuşan yardımcılar.
+// Sadece sunucu tarafında (Server Component / Server Action) kullanılır;
+// API_URL tarayıcıya hiç gönderilmez.
+
+export type Category = "concert" | "match" | "cinema" | "theater";
+export type OrderStatus = "pending" | "paid" | "failed" | "cancelled";
+
+export type Venue = { id: number; name: string; city: string; address: string | null };
+
+export type EventSummary = {
+  id: number;
+  category: Category;
+  title: string;
+  starts_at: string;
+  image_url: string | null;
+  venue: Venue;
+  min_price: string | null;
+  remaining: number;
+};
+
+export type TicketType = { id: number; name: string; price: string; remaining: number };
+
+export type EventDetail = EventSummary & {
+  description: string | null;
+  ticket_types: TicketType[];
+};
+
+export type Order = {
+  code: string;
+  status: OrderStatus;
+  buyer_name: string;
+  buyer_email_masked: string;
+  total_amount: string;
+  created_at: string;
+  paid_at: string | null;
+  event: EventSummary;
+  items: { ticket_type_name: string; quantity: number; unit_price: string; line_total: string }[];
+};
+
+export class ApiError extends Error {
+  constructor(
+    public status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+const API_URL = (process.env.API_URL ?? "http://127.0.0.1:8000").replace(/\/$/, "");
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}${path}`, {
+      ...init,
+      headers: { "Content-Type": "application/json", ...init?.headers },
+      cache: "no-store",
+    });
+  } catch {
+    throw new ApiError(503, "Bilet sistemine şu an ulaşılamıyor. Lütfen biraz sonra tekrar deneyin.");
+  }
+  if (!res.ok) {
+    let message = "Beklenmeyen bir hata oluştu.";
+    try {
+      const body = await res.json();
+      if (typeof body.detail === "string") message = body.detail;
+      else if (Array.isArray(body.detail)) message = "Lütfen bilgileri kontrol edin.";
+    } catch {}
+    throw new ApiError(res.status, message);
+  }
+  return res.json() as Promise<T>;
+}
+
+export function getEvents(filters: { category?: string; city?: string } = {}) {
+  const qs = new URLSearchParams();
+  if (filters.category) qs.set("category", filters.category);
+  if (filters.city) qs.set("city", filters.city);
+  const q = qs.toString();
+  return request<EventSummary[]>(`/events${q ? `?${q}` : ""}`);
+}
+
+export const getCities = () => request<string[]>("/events/cities");
+export const getEvent = (id: string | number) => request<EventDetail>(`/events/${encodeURIComponent(id)}`);
+export const getOrder = (code: string) => request<Order>(`/orders/${encodeURIComponent(code)}`);
+
+export const createOrder = (body: {
+  buyer_name: string;
+  buyer_email: string;
+  items: { ticket_type_id: number; quantity: number }[];
+}) => request<Order>("/orders", { method: "POST", body: JSON.stringify(body) });
+
+export const payOrder = (
+  code: string,
+  body: { card_holder: string; card_number: string; expiry: string; cvc: string },
+) => request<Order>(`/orders/${encodeURIComponent(code)}/pay`, { method: "POST", body: JSON.stringify(body) });

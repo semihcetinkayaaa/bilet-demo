@@ -9,7 +9,12 @@ from bilet_api.config import settings
 
 # pool_pre_ping: kopmuş bağlantıları kullanmadan önce fark eder
 # (SSH tüneli kapanıp açıldığında işe yarar).
-engine = create_engine(settings.database_url, pool_pre_ping=True)
+engine = create_engine(
+    settings.database_url,
+    pool_pre_ping=True,
+    # Veritabanına ulaşılamazsa (ör. SSH tüneli kapalı) dakikalarca beklemek yerine hızlı hata ver.
+    connect_args={"connect_timeout": 5},
+)
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
