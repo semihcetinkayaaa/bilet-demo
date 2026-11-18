@@ -1,0 +1,75 @@
+{
+  "name": "Grafana → Bilet alarmları",
+  "nodes": [
+    {
+      "id": "a1b2c3d4-0001-4000-8000-000000000001",
+      "name": "Grafana webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "5f1c2e8a-7b3d-4c6e-9a1f-0b2c3d4e5f60",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "grafana-bilet-alarm",
+        "authentication": "headerAuth",
+        "responseMode": "onReceived",
+        "options": {}
+      }
+    },
+    {
+      "id": "a1b2c3d4-0002-4000-8000-000000000002",
+      "name": "Mesajı hazırla",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Grafana webhook gövdesini okunur Türkçe mesajlara çevirir (her alarm için bir öğe).\nconst body = $input.first().json.body ?? $input.first().json;\nconst SEV = {\n  kritik: { icon: '🔴', label: 'KRİTİK' },\n  uyari:  { icon: '🟠', label: 'UYARI' },\n  bilgi:  { icon: '🔵', label: 'BİLGİ' },\n};\nconst fmtTime = (iso) => new Date(iso).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' });\n\nreturn (body.alerts ?? []).map((a) => {\n  const sev = SEV[a.labels?.onem] ?? { icon: '⚪', label: (a.labels?.onem ?? '').toUpperCase() };\n  const resolved = a.status === 'resolved';\n  const title = resolved\n    ? `✅ Düzeldi · ${a.labels?.alertname ?? 'Alarm'}`\n    : `${sev.icon} ${sev.label} · ${a.labels?.alertname ?? 'Alarm'}`;\n  const lines = [\n    title,\n    a.annotations?.summary ?? '',\n    resolved ? '' : (a.annotations?.description ?? ''),\n    `🕒 ${fmtTime(resolved ? a.endsAt : a.startsAt)}`,\n    a.dashboardURL || a.generatorURL ? `🔗 ${a.dashboardURL || a.generatorURL}` : '',\n  ].filter(Boolean);\n  return {\n    json: {\n      durum: resolved ? 'duzeldi' : 'tetiklendi',\n      onem: a.labels?.onem ?? '',\n      baslik: title,\n      mesaj: lines.join('\\n'),\n      alarm: a.labels?.alertname ?? '',\n      zaman: resolved ? a.endsAt : a.startsAt,\n    },\n  };\n});"
+      }
+    },
+    {
+      "id": "a1b2c3d4-0003-4000-8000-000000000003",
+      "name": "Buraya bildirim kanalını bağla",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        520,
+        0
+      ],
+      "parameters": {}
+    }
+  ],
+  "connections": {
+    "Grafana webhook": {
+      "main": [
+        [
+          {
+            "node": "Mesajı hazırla",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mesajı hazırla": {
+      "main": [
+        [
+          {
+            "node": "Buraya bildirim kanalını bağla",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

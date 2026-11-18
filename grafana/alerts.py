@@ -59,7 +59,7 @@ WITH cur AS ({_current("SUM(o.total_amount)", "1 hour")}),
      base AS ({_baseline("SUM(o.total_amount)", "1 hour")})
 SELECT CASE WHEN base.v < 500 THEN 1.0 ELSE cur.v / base.v END AS deger FROM cur, base""",
         "op": "lt", "threshold": 0.5, "for": "10m", "severity": "kritik",
-        "summary": "Son 1 saatin cirosu normalin {{ humanizePercentage $values.B.Value }}'i",
+        "summary": "Son 1 saatin cirosu normalin altında (normale oranı: {{ humanizePercentage $values.B.Value }})",
         "description": "Son 1 saatteki ciro, geçen 7 günün aynı saatlerindeki ortalamanın yarısının altında. "
                        "Ödeme sistemi, site erişimi veya bir hata olabilir.",
     },
@@ -96,7 +96,7 @@ SELECT CASE WHEN COUNT(*) < 10 THEN 0.0
 FROM orders o
 WHERE {REAL} AND o.status IN ('paid', 'failed') AND o.created_at >= now() - interval '1 hour'""",
         "op": "gt", "threshold": 0.3, "for": "5m", "severity": "kritik",
-        "summary": "Son 1 saatte ödemelerin {{ humanizePercentage $values.B.Value }}'i reddedildi",
+        "summary": "Son 1 saatte reddedilen ödeme oranı: {{ humanizePercentage $values.B.Value }}",
         "description": "Reddedilen ödeme oranı %30'u geçti (en az 10 deneme). Ödeme altyapısını kontrol edin.",
     },
     {
