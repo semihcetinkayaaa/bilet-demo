@@ -33,6 +33,12 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
                 </li>
               ))}
             </ul>
+            <Link
+              href="/siparis"
+              className="ml-auto rounded-full border border-black/15 px-4 py-1.5 text-sm hover:border-brand dark:border-white/15"
+            >
+              Sipariş sorgula
+            </Link>
           </nav>
         </header>
         <main className="flex-1">{children}</main>

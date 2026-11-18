@@ -4,7 +4,8 @@
 // Tarayıcı backend'le doğrudan konuşmaz; doğrulamanın asıl yeri yine backend'dir.
 
 import { redirect } from "next/navigation";
-import { ApiError, createOrder, payOrder } from "@/lib/api";
+import { ApiError, createOrder, getOrder, payOrder } from "@/lib/api";
+import { normalizeOrderCode } from "@/lib/orders";
 
 export type FormState = { error?: string };
 
@@ -34,6 +35,20 @@ export async function createOrderAction(_prev: FormState, fd: FormData): Promise
     return { error: e instanceof ApiError ? e.message : "Sipariş oluşturulamadı." };
   }
   redirect(`/odeme/${code}`);
+}
+
+export async function findOrderAction(_prev: FormState, fd: FormData): Promise<FormState> {
+  const code = normalizeOrderCode(str(fd, "code"));
+  if (!code) return { error: "Sipariş kodu BLT-XXXXXX biçiminde olmalı (ör. BLT-7K3QX9)." };
+  try {
+    await getOrder(code);
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) {
+      return { error: "Bu koda ait bir sipariş bulunamadı. Kodu e-postandaki gibi yazdığından emin ol." };
+    }
+    return { error: e instanceof ApiError ? e.message : "Sipariş sorgulanamadı." };
+  }
+  redirect(`/siparis/${code}`);
 }
 
 export async function payOrderAction(code: string, _prev: FormState, fd: FormData): Promise<FormState> {
