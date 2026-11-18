@@ -49,6 +49,11 @@ export class ApiError extends Error {
 const API_URL = (process.env.API_URL ?? "http://127.0.0.1:8000").replace(/\/$/, "");
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await send(path, init);
+  return res.json() as Promise<T>;
+}
+
+async function send(path: string, init?: RequestInit): Promise<Response> {
   let res: Response;
   try {
     res = await fetch(`${API_URL}${path}`, {
@@ -68,16 +73,22 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     } catch {}
     throw new ApiError(res.status, message);
   }
-  return res.json() as Promise<T>;
+  return res;
 }
 
-export function getEvents(filters: { category?: string; city?: string; q?: string } = {}) {
+export async function getEvents(
+  filters: { category?: string; city?: string; q?: string; limit?: number; offset?: number } = {},
+): Promise<{ events: EventSummary[]; total: number }> {
   const qs = new URLSearchParams();
   if (filters.category) qs.set("category", filters.category);
   if (filters.city) qs.set("city", filters.city);
   if (filters.q) qs.set("q", filters.q.slice(0, 100));
-  const q = qs.toString();
-  return request<EventSummary[]>(`/events${q ? `?${q}` : ""}`);
+  if (filters.limit) qs.set("limit", String(filters.limit));
+  if (filters.offset) qs.set("offset", String(filters.offset));
+  const res = await send(`/events?${qs}`);
+  const events = (await res.json()) as EventSummary[];
+  const total = Number(res.headers.get("X-Total-Count") ?? events.length);
+  return { events, total };
 }
 
 export const getCities = () => request<string[]>("/events/cities");

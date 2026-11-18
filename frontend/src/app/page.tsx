@@ -5,7 +5,9 @@ import { EventCard, EventGridSkeleton } from "@/components/event-card";
 import { ApiError, getCities, getEvents } from "@/lib/api";
 import { BRAND, CATEGORIES } from "@/lib/format";
 
-type Filters = { kategori?: string; sehir?: string; ara?: string };
+type Filters = { kategori?: string; sehir?: string; ara?: string; sayfa?: number };
+
+const PAGE_SIZE = 24;
 
 function pick(v: string | string[] | undefined) {
   const s = Array.isArray(v) ? v[0] : v;
@@ -18,6 +20,7 @@ export default function HomePage({ searchParams }: PageProps<"/">) {
     kategori: pick(sp.kategori),
     sehir: pick(sp.sehir),
     ara: pick(sp.ara)?.slice(0, 100),
+    sayfa: Math.min(Math.max(1, Math.floor(Number(pick(sp.sayfa)) || 1)), 1000),
   }));
 
   return (
@@ -53,12 +56,14 @@ function href(f: Filters) {
   if (f.ara) qs.set("ara", f.ara);
   if (f.kategori) qs.set("kategori", f.kategori);
   if (f.sehir) qs.set("sehir", f.sehir);
+  if (f.sayfa && f.sayfa > 1) qs.set("sayfa", String(f.sayfa));
   const q = qs.toString();
   return q ? `/?${q}` : "/";
 }
 
 async function FilterBar({ filters }: { filters: Promise<Filters> }) {
-  const f = await filters;
+  // Filtre değişince ilk sayfaya dönülsün
+  const f: Filters = { ...(await filters), sayfa: undefined };
   let cities: string[] = [];
   try {
     cities = await getCities();
@@ -120,9 +125,16 @@ async function EventList({ filters }: { filters: Promise<Filters> }) {
   const f = await filters;
   const category = CATEGORIES.some((c) => c.value === f.kategori) ? f.kategori : undefined;
 
-  let events;
+  const page = f.sayfa ?? 1;
+  let events, total;
   try {
-    events = await getEvents({ category, city: f.sehir, q: f.ara });
+    ({ events, total } = await getEvents({
+      category,
+      city: f.sehir,
+      q: f.ara,
+      limit: PAGE_SIZE,
+      offset: (page - 1) * PAGE_SIZE,
+    }));
   } catch (e) {
     return (
       <p className="rounded-xl bg-card p-6 text-center text-muted">
@@ -133,7 +145,7 @@ async function EventList({ filters }: { filters: Promise<Filters> }) {
 
   const searchNote = f.ara && (
     <p className="mb-4 text-sm text-muted">
-      <span className="font-medium text-foreground">“{f.ara}”</span> için {events.length} etkinlik bulundu.{" "}
+      <span className="font-medium text-foreground">“{f.ara}”</span> için {total} etkinlik bulundu.{" "}
       <Link href={href({ kategori: f.kategori, sehir: f.sehir })} className="text-brand underline">
         Aramayı temizle
       </Link>
@@ -154,6 +166,7 @@ async function EventList({ filters }: { filters: Promise<Filters> }) {
     );
   }
 
+  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
   return (
     <>
       {searchNote}
@@ -162,6 +175,49 @@ async function EventList({ filters }: { filters: Promise<Filters> }) {
           <EventCard key={e.id} event={e} />
         ))}
       </div>
+      {pageCount > 1 && <Pagination f={f} page={page} pageCount={pageCount} total={total} />}
     </>
+  );
+}
+
+function Pagination({ f, page, pageCount, total }: { f: Filters; page: number; pageCount: number; total: number }) {
+  // Çok sayfa varsa: ilk, son ve bulunulan sayfanın çevresi gösterilir.
+  const pages = Array.from({ length: pageCount }, (_, i) => i + 1).filter(
+    (p) => p === 1 || p === pageCount || Math.abs(p - page) <= 1,
+  );
+  const link = "inline-flex min-w-10 items-center justify-center rounded-lg border px-3 py-2 text-sm";
+  const idle = `${link} border-black/15 hover:border-brand dark:border-white/15`;
+  const off = `${link} pointer-events-none border-transparent text-muted opacity-50`;
+
+  return (
+    <nav aria-label="Sayfalar" className="mt-10 flex flex-col items-center gap-3">
+      <div className="flex flex-wrap items-center justify-center gap-2">
+        <Link href={href({ ...f, sayfa: page - 1 })} className={page > 1 ? idle : off} aria-disabled={page <= 1}>
+          ← Önceki
+        </Link>
+        {pages.map((p, i) => (
+          <span key={p} className="contents">
+            {i > 0 && p - pages[i - 1] > 1 && <span className="px-1 text-muted">…</span>}
+            <Link
+              href={href({ ...f, sayfa: p })}
+              aria-current={p === page ? "page" : undefined}
+              className={p === page ? `${link} border-brand bg-brand text-brand-foreground` : idle}
+            >
+              {p}
+            </Link>
+          </span>
+        ))}
+        <Link
+          href={href({ ...f, sayfa: page + 1 })}
+          className={page < pageCount ? idle : off}
+          aria-disabled={page >= pageCount}
+        >
+          Sonraki →
+        </Link>
+      </div>
+      <p className="text-xs text-muted">
+        {total} etkinlikten {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)} arası
+      </p>
+    </nav>
   );
 }

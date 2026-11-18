@@ -3,7 +3,7 @@
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
@@ -87,18 +87,39 @@ def _upcoming():
 @router.get("", response_model=list[EventSummary])
 def list_events(
     session: SessionDep,
+    response: Response,
     category: EventCategory | None = None,
     city: Annotated[str | None, Query(max_length=100)] = None,
     q: Annotated[str | None, Query(max_length=100, description="etkinlik, mekan, şehir veya açıklamada arar")] = None,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[EventSummary]:
-    """Yaklaşan, yayındaki etkinlikler; tarihe göre sıralı."""
-    stmt = _upcoming().join(Event.venue).order_by(Event.starts_at)
+    """Yaklaşan, yayındaki etkinlikler; tarihe göre sıralı, sayfalı.
+
+    Filtrelere uyan toplam etkinlik sayısı X-Total-Count başlığında döner.
+    """
+    conditions = [Event.is_published, Event.starts_at >= datetime.now(UTC)]
     if category:
-        stmt = stmt.where(Event.category == category)
+        conditions.append(Event.category == category)
     if city:
-        stmt = stmt.where(Venue.city == city)
+        conditions.append(Venue.city == city)
     if q and (search := _search_filter(q)) is not None:
-        stmt = stmt.where(search)
+        conditions.append(search)
+
+    total = session.scalar(
+        select(func.count(Event.id)).join(Event.venue).where(*conditions)
+    )
+    response.headers["X-Total-Count"] = str(total or 0)
+
+    stmt = (
+        select(Event)
+        .join(Event.venue)
+        .where(*conditions)
+        .options(selectinload(Event.venue), selectinload(Event.ticket_types))
+        .order_by(Event.starts_at, Event.id)
+        .limit(limit)
+        .offset(offset)
+    )
     return [to_summary(e) for e in session.scalars(stmt)]
 
 

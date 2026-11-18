@@ -30,6 +30,7 @@ app.add_middleware(
     allow_origins=settings.cors_origin_list,
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
+    expose_headers=["X-Total-Count"],
 )
 
 app.include_router(events.router)
