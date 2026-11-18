@@ -1,0 +1,9 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# Gizli ayarlar
+.env
+.env.*
+!.env.example
