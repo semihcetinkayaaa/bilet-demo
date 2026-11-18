@@ -1,0 +1,958 @@
+{
+  "__inputs": [
+    {
+      "name": "DS_BILET",
+      "label": "bilet veritabanı",
+      "type": "datasource",
+      "pluginId": "grafana-postgresql-datasource",
+      "pluginName": "PostgreSQL",
+      "description": "semihcetinkaya.tech bilet veritabanı (sadece okuma kullanıcısı)"
+    }
+  ],
+  "__requires": [
+    {
+      "type": "datasource",
+      "id": "grafana-postgresql-datasource",
+      "name": "PostgreSQL",
+      "version": "1.0.0"
+    }
+  ],
+  "title": "semihcetinkaya.tech · Bilet satışları",
+  "uid": "bilet-satis",
+  "tags": [
+    "bilet",
+    "satış"
+  ],
+  "timezone": "browser",
+  "time": {
+    "from": "now-30d",
+    "to": "now"
+  },
+  "refresh": "1m",
+  "schemaVersion": 39,
+  "editable": true,
+  "graphTooltip": 1,
+  "templating": {
+    "list": [
+      {
+        "name": "demo",
+        "label": "Demo siparişler",
+        "type": "custom",
+        "query": "dahil,hariç",
+        "current": {
+          "text": "dahil",
+          "value": "dahil"
+        },
+        "options": [
+          {
+            "text": "dahil",
+            "value": "dahil",
+            "selected": true
+          },
+          {
+            "text": "hariç",
+            "value": "hariç",
+            "selected": false
+          }
+        ]
+      },
+      {
+        "name": "kategori",
+        "label": "Kategori",
+        "type": "custom",
+        "multi": true,
+        "includeAll": true,
+        "query": "Konser : concert,Maç : match,Sinema : cinema,Tiyatro : theater",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      },
+      {
+        "name": "sehir",
+        "label": "Şehir",
+        "type": "query",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "${DS_BILET}"
+        },
+        "multi": true,
+        "includeAll": true,
+        "query": "SELECT DISTINCT city FROM venues ORDER BY 1",
+        "refresh": 1,
+        "definition": "SELECT DISTINCT city FROM venues ORDER BY 1",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Ciro",
+      "description": "Seçili zaman aralığında ödenmiş siparişlerin toplam tutarı.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_BILET}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 5,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_BILET}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COALESCE(SUM(oi.quantity * oi.unit_price), 0) AS \"Ciro\"\n\nFROM orders o\nJOIN order_items oi ON oi.order_id = o.id\nJOIN ticket_types tt ON tt.id = oi.ticket_type_id\nJOIN events e ON e.id = tt.event_id\nJOIN venues v ON v.id = e.venue_id\nWHERE o.status = 'paid' AND ('$demo' = 'dahil' OR o.buyer_email NOT LIKE '%@example.com') AND $__timeFilter(o.paid_at) AND e.category IN ($kategori) AND v.city IN ($sehir)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyTRY",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "purple"
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Satılan bilet",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_BILET}"
+      },
+      "gridPos": {
+        "x": 5,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_BILET}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COALESCE(SUM(oi.quantity), 0) AS \"Bilet\"\n\nFROM orders o\nJOIN order_items oi ON oi.order_id = o.id\nJOIN ticket_types tt ON tt.id = oi.ticket_type_id\nJOIN events e ON e.id = tt.event_id\nJOIN venues v ON v.id = e.venue_id\nWHERE o.status = 'paid' AND ('$demo' = 'dahil' OR o.buyer_email NOT LIKE '%@example.com') AND $__timeFilter(o.paid_at) AND e.category IN ($kategori) AND v.city IN ($sehir)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "green"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Ödenmiş sipariş",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_BILET}"
+      },
+      "gridPos": {
+        "x": 9,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_BILET}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COUNT(DISTINCT o.id) AS \"Sipariş\"\n\nFROM orders o\nJOIN order_items oi ON oi.order_id = o.id\nJOIN ticket_types tt ON tt.id = oi.ticket_type_id\nJOIN events e ON e.id = tt.event_id\nJOIN venues v ON v.id = e.venue_id\nWHERE o.status = 'paid' AND ('$demo' = 'dahil' OR o.buyer_email NOT LIKE '%@example.com') AND $__timeFilter(o.paid_at) AND e.category IN ($kategori) AND v.city IN ($sehir)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Ortalama sepet",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_BILET}"
+      },
+      "gridPos": {
+        "x": 13,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_BILET}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COALESCE(SUM(oi.quantity * oi.unit_price) / NULLIF(COUNT(DISTINCT o.id), 0), 0) AS \"Ortalama\"\n\nFROM orders o\nJOIN order_items oi ON oi.order_id = o.id\nJOIN ticket_types tt ON tt.id = oi.ticket_type_id\nJOIN events e ON e.id = tt.event_id\nJOIN venues v ON v.id = e.venue_id\nWHERE o.status = 'paid' AND ('$demo' = 'dahil' OR o.buyer_email NOT LIKE '%@example.com') AND $__timeFilter(o.paid_at) AND e.category IN ($kategori) AND v.city IN ($sehir)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyTRY",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "orange"
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Ödeme başarı oranı",
+      "description": "Ödenen / (ödenen + reddedilen). Bekleyen ve iptal edilenler hariç.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_BILET}"
+      },
+      "gridPos": {
+        "x": 17,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_BILET}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COALESCE(\n  COUNT(DISTINCT o.id) FILTER (WHERE o.status = 'paid')::float\n  / NULLIF(COUNT(DISTINCT o.id) FILTER (WHERE o.status IN ('paid', 'failed')), 0), 0) AS \"Başarı\"\n\nFROM orders o\nJOIN order_items oi ON oi.order_id = o.id\nJOIN ticket_types tt ON tt.id = oi.ticket_type_id\nJOIN events e ON e.id = tt.event_id\nJOIN venues v ON v.id = e.venue_id\nWHERE ('$demo' = 'dahil' OR o.buyer_email NOT LIKE '%@example.com') AND $__timeFilter(o.created_at) AND e.category IN ($kategori) AND v.city IN ($sehir)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "teal"
+          },
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Bekleyen ödeme",
+      "description": "Şu an ödeme adımında bekleyen siparişler (zaman aralığından bağımsız).",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_BILET}"
+      },
+      "gridPos": {
+        "x": 21,
+        "y": 0,
+        "w": 3,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_BILET}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COUNT(*) AS \"Bekleyen\" FROM orders o\nWHERE o.status = 'pending' AND ('$demo' = 'dahil' OR o.buyer_email NOT LIKE '%@example.com')"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "yellow"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Günlük ciro",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_BILET}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 14,
+        "h": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_BILET}"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT $__timeGroupAlias(o.paid_at, 1d), SUM(oi.quantity * oi.unit_price) AS \"Ciro\"\n\nFROM orders o\nJOIN order_items oi ON oi.order_id = o.id\nJOIN ticket_types tt ON tt.id = oi.ticket_type_id\nJOIN events e ON e.id = tt.event_id\nJOIN venues v ON v.id = e.venue_id\nWHERE o.status = 'paid' AND ('$demo' = 'dahil' OR o.buyer_email NOT LIKE '%@example.com') AND $__timeFilter(o.paid_at) AND e.category IN ($kategori) AND v.city IN ($sehir)\nGROUP BY 1 ORDER BY 1"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyTRY",
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "barAlignment": 0,
+            "lineWidth": 1
+          },
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "purple"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": false
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      }
+    },
+    {
+      "id": 8,
+      "type": "piechart",
+      "title": "Kategoriye göre ciro",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_BILET}"
+      },
+      "gridPos": {
+        "x": 14,
+        "y": 4,
+        "w": 10,
+        "h": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_BILET}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT CASE e.category WHEN 'concert' THEN 'Konser' WHEN 'match' THEN 'Maç'\n  WHEN 'cinema' THEN 'Sinema' WHEN 'theater' THEN 'Tiyatro' END AS \"Kategori\", SUM(oi.quantity * oi.unit_price) AS \"Ciro\"\n\nFROM orders o\nJOIN order_items oi ON oi.order_id = o.id\nJOIN ticket_types tt ON tt.id = oi.ticket_type_id\nJOIN events e ON e.id = tt.event_id\nJOIN venues v ON v.id = e.venue_id\nWHERE o.status = 'paid' AND ('$demo' = 'dahil' OR o.buyer_email NOT LIKE '%@example.com') AND $__timeFilter(o.paid_at) AND e.category IN ($kategori) AND v.city IN ($sehir)\nGROUP BY 1 ORDER BY 2 DESC"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyTRY"
+        },
+        "overrides": []
+      },
+      "options": {
+        "pieType": "donut",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": true
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "values": [
+            "value",
+            "percent"
+          ]
+        },
+        "displayLabels": []
+      }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Günlük satılan bilet (kategoriye göre)",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_BILET}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 13,
+        "w": 14,
+        "h": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_BILET}"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT $__timeGroupAlias(o.paid_at, 1d), CASE e.category WHEN 'concert' THEN 'Konser' WHEN 'match' THEN 'Maç'\n  WHEN 'cinema' THEN 'Sinema' WHEN 'theater' THEN 'Tiyatro' END AS metric, SUM(oi.quantity) AS value\n\nFROM orders o\nJOIN order_items oi ON oi.order_id = o.id\nJOIN ticket_types tt ON tt.id = oi.ticket_type_id\nJOIN events e ON e.id = tt.event_id\nJOIN venues v ON v.id = e.venue_id\nWHERE o.status = 'paid' AND ('$demo' = 'dahil' OR o.buyer_email NOT LIKE '%@example.com') AND $__timeFilter(o.paid_at) AND e.category IN ($kategori) AND v.city IN ($sehir)\nGROUP BY 1, 2 ORDER BY 1"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 85,
+            "stacking": {
+              "mode": "normal"
+            },
+            "lineWidth": 0
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 10,
+      "type": "barchart",
+      "title": "Şehirlere göre ciro",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_BILET}"
+      },
+      "gridPos": {
+        "x": 14,
+        "y": 13,
+        "w": 10,
+        "h": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_BILET}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT v.city AS \"Şehir\", SUM(oi.quantity * oi.unit_price) AS \"Ciro\"\n\nFROM orders o\nJOIN order_items oi ON oi.order_id = o.id\nJOIN ticket_types tt ON tt.id = oi.ticket_type_id\nJOIN events e ON e.id = tt.event_id\nJOIN venues v ON v.id = e.venue_id\nWHERE o.status = 'paid' AND ('$demo' = 'dahil' OR o.buyer_email NOT LIKE '%@example.com') AND $__timeFilter(o.paid_at) AND e.category IN ($kategori) AND v.city IN ($sehir)\nGROUP BY 1 ORDER BY 2 DESC"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyTRY",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "showValue": "auto",
+        "legend": {
+          "showLegend": false
+        },
+        "xTickLabelRotation": 0
+      }
+    },
+    {
+      "id": 11,
+      "type": "bargauge",
+      "title": "En çok ciro getiren 10 etkinlik",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_BILET}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 22,
+        "w": 12,
+        "h": 10
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_BILET}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT e.title || ' · ' || v.city || ' · ' || to_char(e.starts_at AT TIME ZONE 'Europe/Istanbul', 'DD.MM HH24:MI') AS \"Etkinlik\",\n       SUM(oi.quantity * oi.unit_price) AS \"Ciro\"\n\nFROM orders o\nJOIN order_items oi ON oi.order_id = o.id\nJOIN ticket_types tt ON tt.id = oi.ticket_type_id\nJOIN events e ON e.id = tt.event_id\nJOIN venues v ON v.id = e.venue_id\nWHERE o.status = 'paid' AND ('$demo' = 'dahil' OR o.buyer_email NOT LIKE '%@example.com') AND $__timeFilter(o.paid_at) AND e.category IN ($kategori) AND v.city IN ($sehir)\nGROUP BY e.id, e.title, v.city, e.starts_at ORDER BY 2 DESC LIMIT 10"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyTRY",
+          "color": {
+            "mode": "continuous-BlPu"
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "showUnfilled": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": true
+        },
+        "valueMode": "color",
+        "namePlacement": "top"
+      }
+    },
+    {
+      "id": 12,
+      "type": "table",
+      "title": "Yaklaşan etkinliklerde doluluk",
+      "description": "Satılan adetler tüm zamanlar içindir (zaman aralığından bağımsız; demo siparişler dahil).",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_BILET}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 22,
+        "w": 12,
+        "h": 10
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_BILET}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT e.title AS \"Etkinlik\", CASE e.category WHEN 'concert' THEN 'Konser' WHEN 'match' THEN 'Maç'\n  WHEN 'cinema' THEN 'Sinema' WHEN 'theater' THEN 'Tiyatro' END AS \"Kategori\", v.city AS \"Şehir\",\n       e.starts_at AS \"Tarih\",\n       SUM(tt.sold) AS \"Satılan\", SUM(tt.quota) AS \"Kontenjan\",\n       SUM(tt.sold)::float / NULLIF(SUM(tt.quota), 0) AS \"Doluluk\"\nFROM events e\nJOIN venues v ON v.id = e.venue_id\nJOIN ticket_types tt ON tt.event_id = e.id\nWHERE e.starts_at >= now() AND e.category IN ($kategori) AND v.city IN ($sehir)\nGROUP BY e.id, e.title, e.category, v.city, e.starts_at\nORDER BY \"Doluluk\" DESC, e.starts_at\nLIMIT 50"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Doluluk"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 1
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "gradient"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "continuous-GrYlRd"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Tarih"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsLocal"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      }
+    },
+    {
+      "id": 13,
+      "type": "barchart",
+      "title": "Günün saatine göre siparişler",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_BILET}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 32,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_BILET}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT lpad(extract(hour FROM o.created_at AT TIME ZONE 'Europe/Istanbul')::text, 2, '0') || ':00' AS \"Saat\",\n       COUNT(DISTINCT o.id) AS \"Sipariş\"\n\nFROM orders o\nJOIN order_items oi ON oi.order_id = o.id\nJOIN ticket_types tt ON tt.id = oi.ticket_type_id\nJOIN events e ON e.id = tt.event_id\nJOIN venues v ON v.id = e.venue_id\nWHERE ('$demo' = 'dahil' OR o.buyer_email NOT LIKE '%@example.com') AND $__timeFilter(o.created_at) AND e.category IN ($kategori) AND v.city IN ($sehir)\nGROUP BY 1 ORDER BY 1"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "orange"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showValue": "never",
+        "legend": {
+          "showLegend": false
+        },
+        "xTickLabelRotation": -45
+      }
+    },
+    {
+      "id": 14,
+      "type": "piechart",
+      "title": "Sipariş durumları",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_BILET}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 32,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_BILET}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT CASE o.status WHEN 'paid' THEN 'Ödendi' WHEN 'failed' THEN 'Reddedildi'\n         WHEN 'cancelled' THEN 'İptal' ELSE 'Bekliyor' END AS \"Durum\",\n       COUNT(*) AS \"Sipariş\"\nFROM orders o\nWHERE ('$demo' = 'dahil' OR o.buyer_email NOT LIKE '%@example.com') AND $__timeFilter(o.created_at)\nGROUP BY 1 ORDER BY 2 DESC"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Ödendi"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Reddedildi"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "İptal"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "gray"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Bekliyor"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "yellow"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "pieType": "pie",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": true
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "values": [
+            "value",
+            "percent"
+          ]
+        }
+      }
+    },
+    {
+      "id": 15,
+      "type": "table",
+      "title": "Son siparişler",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_BILET}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 40,
+        "w": 24,
+        "h": 10
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_BILET}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT o.created_at AS \"Zaman\", o.code AS \"Kod\", o.buyer_name AS \"Alıcı\",\n       CASE o.status WHEN 'paid' THEN 'Ödendi' WHEN 'failed' THEN 'Reddedildi'\n         WHEN 'cancelled' THEN 'İptal' ELSE 'Bekliyor' END AS \"Durum\",\n       o.total_amount AS \"Tutar\",\n       (SELECT e.title FROM order_items oi JOIN ticket_types tt ON tt.id = oi.ticket_type_id\n          JOIN events e ON e.id = tt.event_id WHERE oi.order_id = o.id LIMIT 1) AS \"Etkinlik\",\n       CASE WHEN o.buyer_email LIKE '%@example.com' THEN 'demo' ELSE 'gerçek' END AS \"Kaynak\"\nFROM orders o\nWHERE ('$demo' = 'dahil' OR o.buyer_email NOT LIKE '%@example.com') AND $__timeFilter(o.created_at)\nORDER BY o.created_at DESC\nLIMIT 25"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Tutar"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyTRY"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Zaman"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsLocal"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      }
+    }
+  ]
+}
