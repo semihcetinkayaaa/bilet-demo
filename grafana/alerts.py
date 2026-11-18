@@ -1,8 +1,9 @@
 """semihcetinkaya.tech satış alarmlarını Grafana'ya yükler (ya da günceller).
 
-Gereken: Grafana'da "Editor" rolünde bir service account token'ı.
+Gereken: Grafana'da "Admin" rolünde bir service account token'ı (alarm provisioning API'si
+çoğu kurulumda Admin ister). İş bitince token'ı silebilirsiniz.
   Grafana > Administration > Users and access > Service accounts > Add service account
-  > rol: Editor > Add service account token
+  > rol: Admin > Add service account token
 
 Çalıştırma (proje kökünde, PowerShell):
     $env:GRAFANA_TOKEN = "glsa_..."        # token'ı sadece terminale yaz
@@ -207,7 +208,9 @@ def main() -> None:
     ds = _api("GET", f"/api/datasources/name/{urllib.parse.quote(ds_name)}")
     print(f"Veri kaynağı: {ds['name']} ({ds['uid']})")
 
-    if _api("GET", f"/api/folders/{FOLDER_UID}", ok_404=True) is None:
+    # Olmayan bir klasörü uid ile sormak bazı Grafana sürümlerinde 403 döndürüyor; listeye bakıyoruz.
+    folders = _api("GET", "/api/folders?limit=1000") or []
+    if not any(f.get("uid") == FOLDER_UID for f in folders):
         _api("POST", "/api/folders", {"uid": FOLDER_UID, "title": FOLDER_TITLE})
         print(f"Klasör oluşturuldu: {FOLDER_TITLE}")
 
