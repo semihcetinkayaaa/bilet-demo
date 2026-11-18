@@ -8,8 +8,10 @@ Kullanım (backend klasöründe, SSH tüneli açıkken):
     uv run python -m bilet_api.seed --reset       # bilet_dev'i temizleyip doldurur
     uv run python -m bilet_api.seed --no-orders   # sadece mekan/etkinlik/bilet tipi
 
-Güvenlik: --reset ve sahte siparişler yalnızca adı "_dev" ile biten
-veritabanlarında çalışır; gerçek veritabanı (bilet) korunur.
+Güvenlik: --reset yalnızca adı "_dev" ile biten veritabanlarında çalışır.
+Sahte siparişler de varsayılan olarak sadece _dev'e yazılır; gerçek veritabanına
+yazmak için ayrıca --demo-orders-in-prod verilmelidir:
+    python -m bilet_api.seed --demo-orders-in-prod
 """
 
 import argparse
@@ -193,9 +195,20 @@ def seed_catalog(session: Session) -> list[Event]:
     return events
 
 
-def seed_orders(session: Session, events: list[Event], count: int, rng: random.Random) -> None:
-    """Son 30 güne yayılmış sahte siparişler; Grafana'da veri görmek için."""
-    _require_dev("Sahte sipariş eklemek")
+def seed_orders(
+    session: Session,
+    events: list[Event],
+    count: int,
+    rng: random.Random,
+    allow_prod: bool = False,
+) -> None:
+    """Son 30 güne yayılmış sahte siparişler; Grafana'da veri görmek için.
+
+    Sahte alıcıların e-postaları @example.com ile biter; gerçek siparişlerden
+    ayırmak için Grafana'da: WHERE buyer_email NOT LIKE '%@example.com'
+    """
+    if not allow_prod:
+        _require_dev("Sahte sipariş eklemek (gerçek veritabanı için --demo-orders-in-prod)")
     now = datetime.now(UTC)
     ticket_types = [tt for e in events for tt in e.ticket_types]
     # Pahalı bilet tipleri daha az satılsın
@@ -252,6 +265,11 @@ def main() -> None:
     parser.add_argument("--no-orders", action="store_true", help="sahte sipariş ekleme")
     parser.add_argument("--orders", type=int, default=400, help="sahte sipariş sayısı (varsayılan 400)")
     parser.add_argument("--random-seed", type=int, default=42, help="aynı veriyi tekrar üretmek için")
+    parser.add_argument(
+        "--demo-orders-in-prod",
+        action="store_true",
+        help="sahte siparişleri _dev olmayan veritabanına da yaz (e-postaları @example.com)",
+    )
     args = parser.parse_args()
 
     print(f"Veritabanı: {_db_name()}")
@@ -263,7 +281,13 @@ def main() -> None:
 
         events = seed_catalog(session)
         if not args.no_orders:
-            seed_orders(session, events, args.orders, random.Random(args.random_seed))
+            seed_orders(
+                session,
+                events,
+                args.orders,
+                random.Random(args.random_seed),
+                allow_prod=args.demo_orders_in_prod,
+            )
     print("Tamam.")
 
 
