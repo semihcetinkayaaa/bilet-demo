@@ -72,7 +72,9 @@ WITH cur AS ({_current("SUM(o.total_amount)", "1 hour")}),
      base AS ({_baseline("SUM(o.total_amount)", "1 hour")})
 SELECT CASE WHEN cur.v < 1000 THEN 0.0 WHEN base.v < 500 THEN 99.0 ELSE cur.v / base.v END AS deger FROM cur, base""",
         "op": "gt", "threshold": 2.0, "for": "0s", "severity": "bilgi",
-        "summary": "Son 1 saatin cirosu normalin {{ humanize $values.B.Value }} katı",
+        # 99 = karşılaştırılacak geçmiş satış yok (SQL'deki işaret değeri)
+        "summary": "{{ if ge $values.B.Value 99.0 }}Son 1 saatte 1.000 TL'yi aşan ciro var; karşılaştırılacak geçmiş satış yok"
+                   "{{ else }}Son 1 saatin cirosu normalin {{ humanize $values.B.Value }} katı{{ end }}",
         "description": "Son 1 saatteki ciro, geçen 7 günün aynı saatlerindeki ortalamanın 2 katını aştı. "
                        "Yeni bir etkinlik ya da kampanya etkisi olabilir.",
     },
@@ -84,7 +86,8 @@ WITH cur AS ({_current("COUNT(*)", "1 hour")}),
      base AS ({_baseline("COUNT(*)", "1 hour")})
 SELECT CASE WHEN cur.v < 10 THEN 0.0 WHEN base.v < 1 THEN 99.0 ELSE cur.v / base.v END AS deger FROM cur, base""",
         "op": "gt", "threshold": 2.0, "for": "0s", "severity": "uyari",
-        "summary": "Son 1 saatte normalin {{ humanize $values.B.Value }} katı sipariş",
+        "summary": "{{ if ge $values.B.Value 99.0 }}Son 1 saatte en az 10 sipariş var; karşılaştırılacak geçmiş satış yok"
+                   "{{ else }}Son 1 saatte normalin {{ humanize $values.B.Value }} katı sipariş{{ end }}",
         "description": "Ödenen sipariş sayısı olağanın 2 katını aştı. Kampanya olabilir; "
                        "beklenmiyorsa bot / kötüye kullanım açısından kontrol edin.",
     },
