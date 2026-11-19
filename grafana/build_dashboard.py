@@ -199,6 +199,44 @@ LIMIT 25""", (0, 40, 24, 10),
                      {"matcher": {"id": "byName", "options": "Zaman"}, "properties": [{"id": "unit", "value": "dateTimeAsLocal"}]}]),
 ]
 
+# --- Üyelik ------------------------------------------------------------------
+# Grafana kullanıcısı users tablosundan SADECE id, created_at, last_login_at ve
+# email_verified_at sütunlarını okuyabilir (e-posta, isim ve şifre özeti kapalı).
+USER_COLS = ("id", "created_at", "last_login_at", "email_verified_at")
+MEMBER = "CASE WHEN o.user_id IS NULL THEN 'Misafir' ELSE 'Üye' END"
+
+panels += [
+    {"id": next(_next_id), "type": "row", "title": "Üyelik", "collapsed": False,
+     "gridPos": {"x": 0, "y": 50, "w": 24, "h": 1}, "panels": []},
+    stat("Toplam üye", "SELECT count(u.id) AS \"Üye\" FROM users u", (0, 51, 6, 4), "none", color="purple"),
+    stat("Yeni üye", "SELECT count(u.id) AS \"Yeni\" FROM users u WHERE $__timeFilter(u.created_at)",
+         (6, 51, 6, 4), "none", "Seçili zaman aralığında kayıt olanlar.", color="green"),
+    stat("Aktif üye", "SELECT count(u.id) AS \"Aktif\" FROM users u WHERE $__timeFilter(u.last_login_at)",
+         (12, 51, 6, 4), "none", "Seçili zaman aralığında giriş yapan üyeler.", color="blue"),
+    stat("Üye siparişi oranı", f"""
+SELECT COALESCE(COUNT(*) FILTER (WHERE o.user_id IS NOT NULL)::float / NULLIF(COUNT(*), 0), 0) AS "Oran"
+FROM orders o
+WHERE {PAID} AND $__timeFilter(o.paid_at)""", (18, 51, 6, 4), "percentunit",
+         "Ödenmiş siparişlerin ne kadarı giriş yapmış üyelerden geldi.", 1, "orange"),
+    panel("timeseries", "Günlük yeni üye", """
+SELECT $__timeGroupAlias(u.created_at, 1d), count(u.id) AS "Yeni üye"
+FROM users u
+WHERE $__timeFilter(u.created_at)
+GROUP BY 1 ORDER BY 1""", (0, 55, 12, 8), fmt="time_series", unit="none",
+          field_config={"custom": {"drawStyle": "bars", "fillOpacity": 80, "lineWidth": 1},
+                        "color": {"mode": "fixed", "fixedColor": "green"}},
+          options={"legend": {"showLegend": False}, "tooltip": {"mode": "single"}}),
+    panel("piechart", "Üye / misafir cirosu", f"""
+SELECT {MEMBER} AS "Alıcı", SUM(o.total_amount) AS "Ciro"
+FROM orders o
+WHERE {PAID} AND $__timeFilter(o.paid_at)
+GROUP BY 1 ORDER BY 2 DESC""", (12, 55, 12, 8), unit=TL,
+          options={"pieType": "donut", "reduceOptions": {"calcs": ["lastNotNull"], "values": True},
+                   "legend": {"displayMode": "table", "placement": "right", "values": ["value", "percent"]}},
+          overrides=[{"matcher": {"id": "byName", "options": n}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": c}}]}
+                     for n, c in [("Üye", "purple"), ("Misafir", "gray")]]),
+]
+
 # Değişkenler (panonun üstündeki seçimler) ------------------------------------
 templating = [
     {

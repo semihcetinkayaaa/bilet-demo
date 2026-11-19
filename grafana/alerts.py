@@ -170,6 +170,25 @@ LOG_RULES = [
         "description": "bilet-db container'ı çalışıyor mu? Coolify'da veritabanının durumunu kontrol edin.",
     },
     {
+        "uid": "bilet-log-kaba-kuvvet",
+        "title": "Olası kaba kuvvet saldırısı",
+        "expr": f'sum(count_over_time({BACKEND} | json logger, msg | __error__="" | logger="bilet_api.auth" '
+                f'| msg=~"login_failed|login_locked" [5m]))',
+        "op": "gt", "threshold": 30, "for": "0s", "severity": "kritik",
+        "summary": "Son 5 dakikada {{ $values.B.Value }} başarısız giriş denemesi",
+        "description": "Olağandışı sayıda hatalı giriş var; şifre deneme saldırısı olabilir. Hesaplar 5 hatada "
+                       "15 dk kilitleniyor, ama kaynak IP'yi Cloudflare'de engellemeyi düşünün.",
+    },
+    {
+        "uid": "bilet-log-hesap-kilidi",
+        "title": "Çok sayıda hesap kilitlendi",
+        "expr": f'sum(count_over_time({BACKEND} | json logger, msg | __error__="" | logger="bilet_api.auth" '
+                f'| msg="login_locked_now" [15m]))',
+        "op": "gt", "threshold": 3, "for": "0s", "severity": "uyari",
+        "summary": "Son 15 dakikada {{ $values.B.Value }} hesap kilitlendi",
+        "description": "Birden fazla hesaba şifre denemesi yapılıyor olabilir (credential stuffing).",
+    },
+    {
         "uid": "bilet-log-eposta",
         "title": "Onay e-postası gönderilemedi",
         "expr": f'sum(count_over_time({BACKEND} |= "e-posta gönderilemedi" [15m]))',

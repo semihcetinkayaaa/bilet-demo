@@ -18,6 +18,7 @@ BACKEND = '{container=~"lhaabzf16e1csryupsbapana.*"}'
 # etiket olursa her satır ayrı seri olur ve sorgular şişer).
 HTTP = f'{BACKEND} | json logger, status, route, duration_ms | __error__="" | logger="bilet_api.http"'
 ORDERS = f'{BACKEND} | json logger, msg | __error__="" | logger="bilet_api.orders"'
+AUTH = f'{BACKEND} | json logger, msg | __error__="" | logger="bilet_api.auth"'
 ERROR_RE = '(?i)(error|exception|traceback|fatal|panic)'
 
 _ids = iter(range(1, 1000))
@@ -111,6 +112,27 @@ panels = [
     panel("logs", "Canlı log akışı ($container)",
           '{container=~"$container"}', (0, 30, 24, 12), options=LOGS_OPTS,
           description="Üstteki 'Container' seçiminden izlemek istediğiniz servisleri seçin."),
+
+    # --- Üyelik / giriş güvenliği
+    stat("Başarısız giriş", f'sum(count_over_time({AUTH} | msg=~"login_failed|login_locked" [$__range]))',
+         (0, 42, 6, 4), thresholds=[{"color": "green", "value": None}, {"color": "orange", "value": 20},
+                                     {"color": "red", "value": 100}],
+         description="Yanlış şifre, olmayan e-posta ve kilitli hesaba deneme."),
+    stat("Kilitlenen hesap", f'sum(count_over_time({AUTH} | msg="login_locked_now" [$__range]))',
+         (6, 42, 6, 4), thresholds=[{"color": "green", "value": None}, {"color": "orange", "value": 1},
+                                     {"color": "red", "value": 5}],
+         description="5 hatalı denemeden sonra 15 dakika kilitlenen hesaplar."),
+    stat("Başarılı giriş", f'sum(count_over_time({AUTH} | msg="login_succeeded" [$__range]))',
+         (12, 42, 6, 4), color="green"),
+    stat("Yeni kayıt", f'sum(count_over_time({AUTH} | msg="user_registered" [$__range]))',
+         (18, 42, 6, 4), color="purple"),
+    panel("timeseries", "Giriş olayları",
+          f"sum by (msg) (count_over_time({AUTH} [$__auto]))", (0, 46, 24, 8), legend="{{msg}}",
+          field_config={"custom": {"drawStyle": "bars", "fillOpacity": 80, "stacking": {"mode": "normal"}, "lineWidth": 0}},
+          options={"legend": {"showLegend": True, "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "desc"}},
+          overrides=[{"matcher": {"id": "byName", "options": n}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": c}}]}
+                     for n, c in [("login_succeeded", "green"), ("user_registered", "purple"), ("login_failed", "orange"),
+                                  ("login_locked", "red"), ("login_locked_now", "dark-red")]]),
 ]
 
 templating = [{
