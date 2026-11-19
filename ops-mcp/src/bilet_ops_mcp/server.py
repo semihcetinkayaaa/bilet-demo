@@ -9,6 +9,7 @@ import functools
 import logging
 import re
 import secrets
+import time
 from datetime import datetime
 
 import anyio
@@ -50,14 +51,21 @@ def friendly(fn):
 
     @functools.wraps(fn)
     async def wrapper(*args, **kwargs):
+        # Hangi aracın çağrıldığını logla (parametreler loglanmaz: sipariş kodu vb. kalmasın)
+        start = time.perf_counter()
+        sonuc = "ok"
         try:
             return await fn(*args, **kwargs)
         except psycopg.Error:
+            sonuc = "db_hatasi"
             log.exception("db_error", extra={"tool": fn.__name__})
             return "Veritabanına şu an ulaşamıyorum, bu bilgiyi getiremedim. Biraz sonra tekrar deneyebilirim."
         except Exception:
+            sonuc = "hata"
             log.exception("tool_error", extra={"tool": fn.__name__})
             return "Bu bilgiyi getirirken beklenmeyen bir sorun oldu."
+        finally:
+            log.info("tool_call: %s %s %dms", fn.__name__, sonuc, (time.perf_counter() - start) * 1000)
 
     return wrapper
 
