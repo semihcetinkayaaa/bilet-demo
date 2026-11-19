@@ -4,8 +4,9 @@
 // Tarayıcı backend'le doğrudan konuşmaz; doğrulamanın asıl yeri yine backend'dir.
 
 import { redirect } from "next/navigation";
-import { ApiError, createOrder, getOrder, payOrder } from "@/lib/api";
+import { ApiError, createOrder, getOrder, login, logout, payOrder, register } from "@/lib/api";
 import { normalizeOrderCode } from "@/lib/orders";
+import { clearSessionCookie, getSessionToken, safeNext, setSessionCookie } from "@/lib/session";
 
 export type FormState = { error?: string };
 
@@ -30,11 +31,61 @@ export async function createOrderAction(_prev: FormState, fd: FormData): Promise
 
   let code: string;
   try {
-    code = (await createOrder({ buyer_name, buyer_email, items })).code;
+    // Giriş yapılmışsa oturum anahtarı gönderilir; sipariş üyenin hesabına bağlanır.
+    code = (await createOrder({ buyer_name, buyer_email, items }, await getSessionToken())).code;
   } catch (e) {
     return { error: e instanceof ApiError ? e.message : "Sipariş oluşturulamadı." };
   }
   redirect(`/odeme/${code}`);
+}
+
+// --------------------------------------------------------------------------- üyelik
+
+export type AuthFormState = { error?: string; email?: string; name?: string };
+
+export async function registerAction(_prev: AuthFormState, fd: FormData): Promise<AuthFormState> {
+  const name = str(fd, "name");
+  const email = str(fd, "email");
+  const password = String(fd.get("password") ?? "");
+  const keep = { email, name };
+  if (name.length < 2) return { ...keep, error: "Lütfen adınızı ve soyadınızı yazın." };
+  if (!email.includes("@")) return { ...keep, error: "Lütfen geçerli bir e-posta adresi yazın." };
+  if (password.length < 8) return { ...keep, error: "Şifre en az 8 karakter olmalı." };
+  if (password !== String(fd.get("password2") ?? "")) return { ...keep, error: "Şifreler birbirini tutmuyor." };
+
+  try {
+    const res = await register({ name, email, password });
+    await setSessionCookie(res.token, res.expires_at);
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 422) return { ...keep, error: "Lütfen bilgileri kontrol edin." };
+    return { ...keep, error: e instanceof ApiError ? e.message : "Kayıt yapılamadı." };
+  }
+  redirect(safeNext(str(fd, "sonra")));
+}
+
+export async function loginAction(_prev: AuthFormState, fd: FormData): Promise<AuthFormState> {
+  const email = str(fd, "email");
+  const password = String(fd.get("password") ?? "");
+  if (!email || !password) return { email, error: "E-posta ve şifrenizi yazın." };
+
+  try {
+    const res = await login({ email, password });
+    await setSessionCookie(res.token, res.expires_at);
+  } catch (e) {
+    return { email, error: e instanceof ApiError ? e.message : "Giriş yapılamadı." };
+  }
+  redirect(safeNext(str(fd, "sonra")));
+}
+
+export async function logoutAction(): Promise<void> {
+  const token = await getSessionToken();
+  if (token) {
+    try {
+      await logout(token); // backend'de oturumu sil
+    } catch {}
+  }
+  await clearSessionCookie();
+  redirect("/");
 }
 
 export async function findOrderAction(_prev: FormState, fd: FormData): Promise<FormState> {

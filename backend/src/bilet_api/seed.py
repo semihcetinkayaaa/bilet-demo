@@ -219,7 +219,7 @@ def reset(session: Session, confirm_db: str | None) -> None:
         )
     session.execute(
         text(
-            "TRUNCATE order_items, orders, ticket_types, events, venues "
+            "TRUNCATE order_items, orders, ticket_types, events, venues, sessions, users "
             "RESTART IDENTITY CASCADE"
         )
     )

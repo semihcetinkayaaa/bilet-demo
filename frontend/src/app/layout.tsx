@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Link from "next/link";
+import { Suspense } from "react";
+import { UserMenu } from "@/components/user-menu";
 import { BRAND, CATEGORIES } from "@/lib/format";
 import "./globals.css";
 
@@ -33,12 +35,17 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
                 </li>
               ))}
             </ul>
-            <Link
-              href="/siparis"
-              className="ml-auto rounded-full border border-black/15 px-4 py-1.5 text-sm hover:border-brand dark:border-white/15"
-            >
-              Sipariş sorgula
-            </Link>
+            <div className="ml-auto flex items-center gap-2">
+              <Link
+                href="/siparis"
+                className="hidden rounded-full border border-black/15 px-4 py-1.5 text-sm hover:border-brand sm:inline-block dark:border-white/15"
+              >
+                Sipariş sorgula
+              </Link>
+              <Suspense fallback={<span className="inline-block h-9 w-24 animate-pulse rounded-full bg-card" />}>
+                <UserMenu />
+              </Suspense>
+            </div>
           </nav>
         </header>
         <main className="flex-1">{children}</main>

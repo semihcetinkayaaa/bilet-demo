@@ -37,6 +37,9 @@ export type Order = {
   items: { ticket_type_name: string; quantity: number; unit_price: string; line_total: string }[];
 };
 
+export type User = { id: number; name: string; email: string; email_verified: boolean; created_at: string };
+export type AuthResult = { token: string; expires_at: string; user: User };
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -95,11 +98,22 @@ export const getCities = () => request<string[]>("/events/cities");
 export const getEvent = (id: string | number) => request<EventDetail>(`/events/${encodeURIComponent(id)}`);
 export const getOrder = (code: string) => request<Order>(`/orders/${encodeURIComponent(code)}`);
 
-export const createOrder = (body: {
-  buyer_name: string;
-  buyer_email: string;
-  items: { ticket_type_id: number; quantity: number }[];
-}) => request<Order>("/orders", { method: "POST", body: JSON.stringify(body) });
+const bearer = (token?: string): HeadersInit => (token ? { Authorization: `Bearer ${token}` } : {});
+
+export const createOrder = (
+  body: { buyer_name: string; buyer_email: string; items: { ticket_type_id: number; quantity: number }[] },
+  token?: string,
+) => request<Order>("/orders", { method: "POST", body: JSON.stringify(body), headers: bearer(token) });
+
+// Üyelik
+export const register = (body: { name: string; email: string; password: string }) =>
+  request<AuthResult>("/auth/register", { method: "POST", body: JSON.stringify(body) });
+export const login = (body: { email: string; password: string }) =>
+  request<AuthResult>("/auth/login", { method: "POST", body: JSON.stringify(body) });
+export const logout = (token: string) =>
+  send("/auth/logout", { method: "POST", headers: bearer(token) }).then(() => undefined);
+export const getMe = (token: string) => request<User>("/auth/me", { headers: bearer(token) });
+export const getMyOrders = (token: string) => request<Order[]>("/me/orders", { headers: bearer(token) });
 
 export const payOrder = (
   code: string,

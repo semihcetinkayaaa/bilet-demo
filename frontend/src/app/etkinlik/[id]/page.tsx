@@ -4,6 +4,7 @@ import { Suspense } from "react";
 import { TicketForm } from "@/components/ticket-form";
 import { ApiError, getEvent } from "@/lib/api";
 import { categoryGradient, categoryInfo, formatDateLong } from "@/lib/format";
+import { getCurrentUser } from "@/lib/session";
 
 export default function EventPage({ params }: PageProps<"/etkinlik/[id]">) {
   return (
@@ -29,6 +30,11 @@ async function EventContent({ id }: { id: Promise<string> }) {
     if (e instanceof ApiError && e.status === 404) notFound();
     throw e;
   }
+
+  let buyer = null;
+  try {
+    buyer = await getCurrentUser();
+  } catch {}
 
   const cat = categoryInfo(event.category);
   return (
@@ -64,7 +70,7 @@ async function EventContent({ id }: { id: Promise<string> }) {
         {event.remaining === 0 ? (
           <p className="rounded-xl bg-card p-6 text-center text-muted">Bu etkinliğin tüm biletleri tükendi.</p>
         ) : (
-          <TicketForm ticketTypes={event.ticket_types} />
+          <TicketForm ticketTypes={event.ticket_types} buyer={buyer} />
         )}
       </aside>
     </div>

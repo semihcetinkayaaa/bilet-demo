@@ -113,8 +113,44 @@ class TicketType(Base):
     event: Mapped[Event] = relationship(back_populates="ticket_types")
 
 
+class User(Base):
+    """Üye. Üyelik isteğe bağlı: bilet almak için gerekmez."""
+
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # Her zaman küçük harfle saklanır
+    email: Mapped[str] = mapped_column(String(320), unique=True)
+    name: Mapped[str] = mapped_column(String(200))
+    # argon2 özeti; düz şifre hiçbir yerde saklanmaz
+    password_hash: Mapped[str] = mapped_column(String(255))
+    # E-posta doğrulanınca dolar (SMTP kurulunca); misafir siparişleri ancak bundan sonra bağlanır
+    email_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Kaba kuvvet koruması
+    failed_logins: Mapped[int] = mapped_column(default=0, server_default="0")
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    sessions: Mapped[list["UserSession"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+
+
+class UserSession(Base):
+    """Giriş oturumu. Tarayıcıdaki çerezde rastgele anahtar, burada sadece SHA-256 özeti durur."""
+
+    __tablename__ = "sessions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+    user: Mapped[User] = relationship(back_populates="sessions")
+
+
 class Order(Base):
-    """Sipariş: üyelik yok, alıcı ad ve e-posta ile tanımlanır."""
+    """Sipariş: alıcı ad ve e-posta ile tanımlanır; giriş yapılmışsa üyeye de bağlanır."""
 
     __tablename__ = "orders"
     __table_args__ = (
@@ -135,6 +171,8 @@ class Order(Base):
     )
     paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     email_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Misafir siparişlerinde boş
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True)
 
     items: Mapped[list["OrderItem"]] = relationship(
         back_populates="order", cascade="all, delete-orphan"

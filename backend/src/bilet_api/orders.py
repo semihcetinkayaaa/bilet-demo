@@ -19,6 +19,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session, selectinload
 
+from bilet_api.auth import CurrentUser, OptionalUser
 from bilet_api.codes import new_order_code
 from bilet_api.db import get_session
 from bilet_api.events import to_summary
@@ -97,7 +98,8 @@ def _unique_code(session: Session) -> str:
 
 
 @router.post("", response_model=OrderOut, status_code=201)
-def create_order(body: OrderCreate, session: SessionDep) -> OrderOut:
+def create_order(body: OrderCreate, session: SessionDep, user: OptionalUser) -> OrderOut:
+    """Misafir ya da üye siparişi. Oturum varsa sipariş üyenin hesabına bağlanır."""
     ids = [i.ticket_type_id for i in body.items]
     if len(set(ids)) != len(ids):
         raise HTTPException(422, "Aynı bilet tipi birden fazla kez seçilmiş")
@@ -133,6 +135,7 @@ def create_order(body: OrderCreate, session: SessionDep) -> OrderOut:
         buyer_email=str(body.buyer_email).lower(),
         total_amount=sum(ticket_types[i.ticket_type_id].price * i.quantity for i in body.items),
         status=OrderStatus.PENDING,
+        user_id=user.id if user else None,
     )
     for item in body.items:
         tt = ticket_types[item.ticket_type_id]
@@ -147,6 +150,7 @@ def create_order(body: OrderCreate, session: SessionDep) -> OrderOut:
             "category": event.category.value,
             "tickets": sum(i.quantity for i in body.items),
             "amount": float(order.total_amount),
+            "member": user is not None,
         },
     )
     return _to_out(_load(session, order.code))
@@ -161,6 +165,18 @@ def _order_log_fields(order: Order) -> dict:
         "tickets": sum(i.quantity for i in order.items),
         "amount": float(order.total_amount),
     }
+
+
+me_router = APIRouter(prefix="/me", tags=["üyelik"])
+
+
+@me_router.get("/orders", response_model=list[OrderOut])
+def my_orders(session: SessionDep, user: CurrentUser) -> list[OrderOut]:
+    """Üyenin hesabına bağlı siparişler (en yeni önce, en fazla 100)."""
+    codes = session.scalars(
+        select(Order.code).where(Order.user_id == user.id).order_by(Order.created_at.desc()).limit(100)
+    ).all()
+    return [_to_out(_load(session, c)) for c in codes]
 
 
 @router.get("/{code}", response_model=OrderOut)

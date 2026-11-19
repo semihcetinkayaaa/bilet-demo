@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useActionState, useState } from "react";
 import { createOrderAction, type FormState } from "@/app/actions";
 import type { TicketType } from "@/lib/api";
@@ -7,9 +9,17 @@ import { formatTL } from "@/lib/format";
 
 const MAX_PER_ORDER = 10;
 
-export function TicketForm({ ticketTypes }: { ticketTypes: TicketType[] }) {
+export function TicketForm({
+  ticketTypes,
+  buyer,
+}: {
+  ticketTypes: TicketType[];
+  /** Giriş yapılmışsa ad ve e-posta hazır gelir */
+  buyer?: { name: string; email: string } | null;
+}) {
   const [state, formAction, pending] = useActionState<FormState, FormData>(createOrderAction, {});
   const [qty, setQty] = useState<Record<number, number>>({});
+  const pathname = usePathname();
 
   const totalCount = Object.values(qty).reduce((a, b) => a + b, 0);
   const totalPrice = ticketTypes.reduce((sum, t) => sum + Number(t.price) * (qty[t.id] ?? 0), 0);
@@ -69,13 +79,25 @@ export function TicketForm({ ticketTypes }: { ticketTypes: TicketType[] }) {
         <legend className="mb-2 text-sm font-semibold">Bilet sahibi</legend>
         <label className="flex flex-col gap-1 text-sm">
           Ad soyad
-          <input name="buyer_name" required minLength={2} autoComplete="name" className="input" />
+          <input name="buyer_name" required minLength={2} autoComplete="name" defaultValue={buyer?.name} className="input" />
         </label>
         <label className="flex flex-col gap-1 text-sm">
           E-posta
-          <input name="buyer_email" type="email" required autoComplete="email" className="input" />
+          <input name="buyer_email" type="email" required autoComplete="email" defaultValue={buyer?.email} className="input" />
         </label>
-        <p className="text-xs text-muted sm:col-span-2">Biletlerin bu adrese gönderilecek. Üyelik gerekmez.</p>
+        <p className="text-xs text-muted sm:col-span-2">
+          {buyer ? (
+            "Biletlerin bu adrese gönderilecek ve sipariş hesabına kaydedilecek."
+          ) : (
+            <>
+              Biletlerin bu adrese gönderilecek. Üyelik gerekmez.{" "}
+              <Link href={`/giris?sonra=${encodeURIComponent(pathname)}`} className="underline">
+                Giriş yaparsan
+              </Link>{" "}
+              siparişlerin hesabında saklanır.
+            </>
+          )}
+        </p>
       </fieldset>
 
       {state.error && (
