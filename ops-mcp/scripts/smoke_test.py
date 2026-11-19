@@ -31,9 +31,34 @@ CALLS = [
 ]
 
 
+def precheck() -> None:
+    """MCP istemcisinden önce düz bir istekle durum kodunu göster (hata nedenini anlamak için)."""
+    import httpx
+
+    print(f"Anahtar uzunluğu: {len(TOKEN)} karakter"
+          + ("  (başında/sonunda boşluk ya da tırnak var!)" if TOKEN != TOKEN.strip().strip('"\'') else ""))
+    r = httpx.post(
+        URL,
+        json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+        headers={"Authorization": f"Bearer {TOKEN}", "Accept": "application/json, text/event-stream",
+                 "Content-Type": "application/json", "User-Agent": "Mozilla/5.0 (compatible; ops-mcp-test/1.0)"},
+        timeout=20,
+    )
+    print(f"Ön kontrol: HTTP {r.status_code}  {r.text[:300]}")
+    hints = {
+        401: "Anahtar Coolify'daki MCP_TOKEN ile aynı değil (boşluk/tırnak olabilir).",
+        421: "Host başlığı reddedildi: Coolify'da ALLOWED_HOSTS ayarı gerekiyor.",
+        403: "Cloudflare ya da sunucu isteği engelledi.",
+    }
+    if r.status_code in hints:
+        sys.exit("→ " + hints[r.status_code])
+    print()
+
+
 async def main() -> None:
     if not TOKEN:
         sys.exit('MCP_TOKEN yok. Önce: $env:MCP_TOKEN = "..."')
+    precheck()
     http = httpx2.AsyncClient(
         headers={"Authorization": f"Bearer {TOKEN}", "User-Agent": "Mozilla/5.0 (compatible; ops-mcp-test/1.0)"},
         timeout=30,
