@@ -17,6 +17,7 @@ import psycopg
 from mcp.server import MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp_types import ToolAnnotations
+from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
@@ -360,17 +361,39 @@ async def health(_: Request) -> JSONResponse:
     return JSONResponse({"status": "ok"})
 
 
+def _auth_problem(got: bytes) -> str:
+    """Reddedilen başlığın NEDENİNİ anlatır; anahtarın kendisini asla yazmaz."""
+    if not got:
+        return "authorization başlığı yok"
+    text = got.decode("latin-1")
+    if not text.startswith("Bearer "):
+        first = text.split(" ", 1)[0]
+        # Sadece bilinen şema adlarını yaz; başında 'Bearer' olmayan çıplak anahtarın parçası loglara düşmesin
+        scheme = f"şema {first!r}" if first.lower() in {"basic", "token", "bearer:", "apikey", "api-key"} else "şema yok"
+        return f"'Bearer ' ile başlamıyor ({scheme}, toplam uzunluk {len(text)})"
+    token = text[7:]
+    if token.startswith("Bearer "):
+        return "'Bearer' iki kez yazılmış"
+    if token != token.strip():
+        return "anahtarın başında/sonunda boşluk var"
+    return f"anahtar uyuşmuyor (gelen uzunluk {len(token)}, beklenen {len(settings.mcp_token)})"
+
+
 class BearerAuth:
-    """/mcp için 'Authorization: Bearer <MCP_TOKEN>' zorunlu (sabit zamanlı karşılaştırma)."""
+    """/mcp için 'Authorization: Bearer <MCP_TOKEN>' zorunlu (sabit zamanlı karşılaştırma).
+
+    /health ve tarayıcı ön kontrolü (OPTIONS) anahtarsız geçer; OPTIONS'a CORS katmanı cevap verir.
+    """
 
     def __init__(self, app):
         self.app = app
         self.expected = f"Bearer {settings.mcp_token}".encode()
 
     async def __call__(self, scope, receive, send):
-        if scope["type"] == "http" and scope["path"] != "/health":
+        if scope["type"] == "http" and scope["path"] != "/health" and scope["method"] != "OPTIONS":
             got = dict(scope.get("headers") or []).get(b"authorization", b"")
             if not secrets.compare_digest(got, self.expected):
+                log.warning("auth_failed: %s", _auth_problem(got))
                 await JSONResponse({"error": "unauthorized"}, status_code=401)(scope, receive, send)
                 return
         await self.app(scope, receive, send)
@@ -383,10 +406,15 @@ def build_app():
         stateless_http=True,
         json_response=True,
         host="0.0.0.0",
-        transport_security=TransportSecuritySettings(
-            enable_dns_rebinding_protection=True,
-            allowed_hosts=settings.allowed_host_list,
-            allowed_origins=[],
-        ),
+        # DNS rebinding koruması yereldeki (localhost) sunucular içindir; burada asıl koruma
+        # zorunlu Bearer anahtarı. Origin kontrolü ElevenLabs gibi istemcileri gereksiz yere reddediyordu.
+        transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
     )
-    return BearerAuth(app)
+    # Bağlantı testi tarayıcıdan yapılırsa diye: sadece ElevenLabs alan adlarına CORS izni
+    return CORSMiddleware(
+        BearerAuth(app),
+        allow_origin_regex=r"https://([a-z0-9-]+\.)*elevenlabs\.io",
+        allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+        allow_headers=["*"],
+        expose_headers=["Mcp-Session-Id"],
+    )
