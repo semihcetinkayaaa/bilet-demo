@@ -380,7 +380,7 @@ def _auth_problem(got: bytes) -> str:
 
 
 class BearerAuth:
-    """/mcp için 'Authorization: Bearer <MCP_TOKEN>' zorunlu (sabit zamanlı karşılaştırma).
+    """/mcp için 'Authorization: Bearer <MCP_TOKEN>' ya da 'X-Api-Key: <MCP_TOKEN>' zorunlu (sabit zamanlı).
 
     /health ve tarayıcı ön kontrolü (OPTIONS) anahtarsız geçer; OPTIONS'a CORS katmanı cevap verir.
     """
@@ -388,12 +388,23 @@ class BearerAuth:
     def __init__(self, app):
         self.app = app
         self.expected = f"Bearer {settings.mcp_token}".encode()
+        self.expected_key = settings.mcp_token.encode()
 
     async def __call__(self, scope, receive, send):
         if scope["type"] == "http" and scope["path"] != "/health" and scope["method"] != "OPTIONS":
-            got = dict(scope.get("headers") or []).get(b"authorization", b"")
-            if not secrets.compare_digest(got, self.expected):
-                log.warning("auth_failed: %s", _auth_problem(got))
+            headers = dict(scope.get("headers") or [])
+            got = headers.get(b"authorization", b"")
+            # Alternatif: bazı istemciler (ör. ElevenLabs secret başlıkları) Authorization göndermeyebiliyor
+            api_key = headers.get(b"x-api-key", b"")
+            ok = secrets.compare_digest(got, self.expected) or (
+                bool(api_key) and secrets.compare_digest(api_key.strip(), self.expected_key)
+            )
+            if not ok:
+                if api_key:
+                    reason = f"x-api-key uyuşmuyor (gelen uzunluk {len(api_key)}, beklenen {len(self.expected_key)})"
+                else:
+                    reason = _auth_problem(got)
+                log.warning("auth_failed: %s", reason)
                 await JSONResponse({"error": "unauthorized"}, status_code=401)(scope, receive, send)
                 return
         await self.app(scope, receive, send)
