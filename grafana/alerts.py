@@ -27,7 +27,15 @@ import urllib.request
 FOLDER_UID = "bilet-alarmlar"
 FOLDER_TITLE = "Bilet satış alarmları"
 GROUP = "bilet-satis"
-INTERVAL_SECONDS = 300  # 5 dakikada bir kontrol
+INTERVAL_SECONDS = 10  # 10 saniyede bir kontrol (Grafana'nın izin verdiği en kısa süre)
+
+# Bildirim politikası (proje=bilet): alarm tetiklenince n8n'e ne kadar hızlı gidilsin.
+POLICY_MATCH = ("proje", "bilet")
+POLICY_TIMING = {
+    "group_wait": "5s",       # ilk bildirim öncesi bekleme (varsayılan 30s)
+    "group_interval": "1m",   # aynı gruba yeni alarm eklenirse sonraki bildirim (varsayılan 5m)
+    "group_by": ["grafana_folder", "alertname"],  # her alarm ayrı grupta, birbirini bekletmesin
+}
 
 REAL = "o.buyer_email NOT LIKE '%@example.com'"
 
@@ -365,7 +373,33 @@ def main() -> None:
     group = _api("GET", f"/api/v1/provisioning/folder/{FOLDER_UID}/rule-groups/{GROUP}")
     group["interval"] = INTERVAL_SECONDS
     _api("PUT", f"/api/v1/provisioning/folder/{FOLDER_UID}/rule-groups/{GROUP}", group)
-    print(f"Tamam: {len(rules)} alarm, {INTERVAL_SECONDS // 60} dakikada bir kontrol ediliyor.")
+    print(f"Tamam: {len(rules)} alarm, {INTERVAL_SECONDS} saniyede bir kontrol ediliyor.")
+    _update_policy()
+
+
+def _matches(route: dict) -> bool:
+    name, value = POLICY_MATCH
+    for m in route.get("object_matchers") or []:
+        if len(m) == 3 and m[0] == name and m[1] == "=" and m[2] == value:
+            return True
+    return any(str(m).replace(" ", "").replace('"', "") == f"{name}={value}" for m in route.get("matchers") or [])
+
+
+def _update_policy() -> None:
+    tree = _api("GET", "/api/v1/provisioning/policies")
+    stack, found = [tree], []
+    while stack:
+        route = stack.pop()
+        if _matches(route):
+            found.append(route)
+        stack.extend(route.get("routes") or [])
+    if not found:
+        print(f"UYARI: {POLICY_MATCH[0]}={POLICY_MATCH[1]} bildirim politikası bulunamadı; bekleme süreleri değişmedi.")
+        return
+    for route in found:
+        route.update(POLICY_TIMING)
+    _api("PUT", "/api/v1/provisioning/policies", tree)
+    print(f"Bildirim politikası: ilk bildirim {POLICY_TIMING['group_wait']} içinde gönderiliyor.")
 
 
 if __name__ == "__main__":
