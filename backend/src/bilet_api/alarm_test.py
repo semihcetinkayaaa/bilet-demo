@@ -5,21 +5,26 @@ Gerçek bir arıza yaratmaz; alarmların baktığı log satırlarının AYNISINI
 
 Güvenlik:
 - ALARM_TEST_KEY ortam değişkeni boşsa (ya da 32 karakterden kısaysa) uçlar hiç yokmuş gibi 404 döner.
-- Her istekte X-Test-Key başlığı gerekir. Anahtar adreste (URL) taşınmaz, böylece loglara düşmez.
+- Her istekte anahtar gerekir: X-Test-Key başlığı ya da (telefon tarayıcısı için) ?anahtar=... parametresi.
+  Backend logları sadece yolu (path) yazar, ?anahtar kısmı loglara düşmez. Telefonun tarayıcı geçmişinde
+  kalır; anahtarı ara sıra değiştirin.
 
 Örnek (PowerShell):
     $h = @{ "X-Test-Key" = $env:ALARM_TEST_KEY }
     Invoke-RestMethod https://api.../test/alarm -Headers $h                 # senaryo listesi
     Invoke-RestMethod https://api.../test/alarm/5xx?adet=10 -Headers $h     # 10 adet 500 hatası
+Telefondan: https://api.../test/alarm?anahtar=...  (tıklanabilir menü)
 """
 
+import html
 import logging
 import secrets
 from dataclasses import dataclass
 from typing import Annotated
+from urllib.parse import quote
 
 from fastapi import APIRouter, Header, HTTPException, Query
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 
 from bilet_api.config import settings
 
@@ -84,16 +89,46 @@ def _uret(senaryo: str, adet: int) -> None:
 
 
 KeyHeader = Annotated[str | None, Header(alias="X-Test-Key")]
+KeyQuery = Annotated[str | None, Query(alias="anahtar")]
+NO_CACHE = {"Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "X-Robots-Tag": "noindex"}
+
+
+def _menu(anahtar: str) -> HTMLResponse:
+    """Telefon için tıklanabilir senaryo listesi."""
+    k = quote(anahtar, safe="")
+    satirlar = "".join(
+        f'<a class="b {s.onem}" href="/test/alarm/{ad}?anahtar={k}">'
+        f'<b>{html.escape(s.alarm)}</b><span>{"📞 arar" if s.onem == "kritik" else "aramaz"} · '
+        f'{html.escape(s.aciklama)}</span></a>'
+        for ad, s in SENARYOLAR.items()
+    )
+    return _sayfa("<h1>Alarm testi</h1><p>Bir senaryoya dokunun; alarm 1-2 dakikada tetiklenir.</p>" + satirlar)
+
+
+def _sayfa(icerik: str, status_code: int = 200) -> HTMLResponse:
+    return HTMLResponse(
+        '<!doctype html><html lang="tr"><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width,initial-scale=1"><title>Alarm testi</title><style>'
+        "body{font-family:system-ui,sans-serif;margin:16px;background:#f6f6f6;color:#111}"
+        "h1{font-size:20px}.b{display:block;padding:14px;margin:10px 0;border-radius:12px;background:#fff;"
+        "text-decoration:none;color:inherit;border-left:6px solid #f59e0b}.b.kritik{border-left-color:#dc2626}"
+        ".b span{display:block;font-size:13px;color:#555;margin-top:4px}"
+        f"</style></head><body>{icerik}</body></html>",
+        status_code=status_code,
+        headers=NO_CACHE,
+    )
 
 
 @router.get("")
-def senaryolar(x_test_key: KeyHeader = None) -> JSONResponse:
-    """Hangi senaryoların olduğunu listeler."""
-    _kontrol(x_test_key)
+def senaryolar(x_test_key: KeyHeader = None, anahtar: KeyQuery = None):
+    """Hangi senaryoların olduğunu listeler. ?anahtar ile açılırsa telefon menüsü gösterir."""
+    _kontrol(x_test_key or anahtar)
+    if anahtar and not x_test_key:
+        return _menu(anahtar)
     return JSONResponse(
         {ad: {"alarm": s.alarm, "onem": s.onem, "varsayilan_adet": s.varsayilan_adet, "aciklama": s.aciklama}
          for ad, s in SENARYOLAR.items()},
-        headers={"Cache-Control": "no-store"},
+        headers=NO_CACHE,
     )
 
 
@@ -101,10 +136,11 @@ def senaryolar(x_test_key: KeyHeader = None) -> JSONResponse:
 def tetikle(
     senaryo: str,
     x_test_key: KeyHeader = None,
+    anahtar: KeyQuery = None,
     adet: Annotated[int | None, Query(ge=1, le=200)] = None,
-) -> JSONResponse:
+):
     """Seçilen alarmın baktığı log satırlarını üretir. Alarm 1 dakika içinde değerlendirilir."""
-    _kontrol(x_test_key)
+    _kontrol(x_test_key or anahtar)
     s = SENARYOLAR.get(senaryo)
     if s is None:
         raise HTTPException(status_code=404, detail=f"Böyle bir senaryo yok. Seçenekler: {', '.join(SENARYOLAR)}")
@@ -113,4 +149,13 @@ def tetikle(
     govde = {"senaryo": senaryo, "uretilen_satir": n, "beklenen_alarm": s.alarm, "onem": s.onem,
              "not": "Grafana alarmı yaklaşık 1-2 dakika içinde tetiklenir. " + s.aciklama}
     # 5xx senaryosunda bu istek de gerçekten 500 döner (o da sayılır)
-    return JSONResponse(govde, status_code=500 if senaryo == "5xx" else 200, headers={"Cache-Control": "no-store"})
+    durum = 500 if senaryo == "5xx" else 200
+    if anahtar and not x_test_key:  # telefondan açıldı: okunur sayfa
+        arama = "Kritik alarm: telefonunuz birazdan çalacak." if s.onem == "kritik" else "Uyarı seviyesi: arama yapılmaz."
+        return _sayfa(
+            f'<h1>✅ {html.escape(s.alarm)}</h1><p>{n} log satırı üretildi. Grafana alarmı 1-2 dakika içinde '
+            f"tetiklenir.</p><p><b>{arama}</b></p><p>{html.escape(s.aciklama)}</p>"
+            f'<a class="b" href="/test/alarm?anahtar={quote(anahtar, safe="")}"><b>← Menüye dön</b></a>',
+            status_code=durum,
+        )
+    return JSONResponse(govde, status_code=durum, headers=NO_CACHE)
