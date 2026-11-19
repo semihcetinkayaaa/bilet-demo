@@ -391,6 +391,19 @@ class BearerAuth:
         self.expected_key = settings.mcp_token.encode()
 
     async def __call__(self, scope, receive, send):
+        # Yedek yöntem: anahtar adreste (/mcp/<anahtar>). Başlık gönderemeyen istemciler için.
+        # Doğrulanırsa yol /mcp'ye çevrilir; böylece erişim logunda anahtar görünmez.
+        if scope["type"] == "http" and scope["path"].startswith("/mcp/"):
+            path_key = scope["path"][len("/mcp/"):].strip("/").encode()
+            scope["path"], scope["raw_path"] = "/mcp", b"/mcp"
+            if not secrets.compare_digest(path_key, self.expected_key):
+                log.warning("auth_failed: adresteki anahtar uyuşmuyor (gelen uzunluk %d, beklenen %d)",
+                            len(path_key), len(self.expected_key))
+                await JSONResponse({"error": "unauthorized"}, status_code=401)(scope, receive, send)
+                return
+            await self.app(scope, receive, send)
+            return
+
         if scope["type"] == "http" and scope["path"] != "/health" and scope["method"] != "OPTIONS":
             headers = dict(scope.get("headers") or [])
             got = headers.get(b"authorization", b"")
