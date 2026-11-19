@@ -15,6 +15,7 @@ class Settings(BaseSettings):
 
     # İç ağ adresleri (Coolify 'coolify' ağı). Ulaşılamazsa ilgili araç bunu söyler, çökmez.
     prometheus_url: str = ""
+    loki_url: str = ""  # Grafana'daki Loki veri kaynağının adresiyle aynı (ör. http://loki-xxxx:3100)
     grafana_url: str = ""
     grafana_token: str = ""  # Grafana'da Viewer rolünde service account token'ı
     backend_url: str = "https://bilet-api.semihcetinkaya.tech"

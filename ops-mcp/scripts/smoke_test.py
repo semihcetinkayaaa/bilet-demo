@@ -28,6 +28,20 @@ CALLS = [
     ("siparis_sorgula", {"kod": "BLT-ZZZZZZ"}),
     ("sistem_sagligi", {}),
     ("aktif_alarmlar", {}),
+    ("bugunku_satis", {"demo_dahil": True}),
+    ("en_cok_satanlar", {"saat": 168, "demo_dahil": True}),
+    ("satis_kirilimi", {"saat": 168, "gore": "kategori", "demo_dahil": True}),
+    ("satis_kirilimi", {"saat": 168, "gore": "sehir", "demo_dahil": True}),
+    ("etkinlik_satisi", {"ad": "konser"}),
+    ("bekleyen_siparisler", {}),
+    ("son_siparisler", {"adet": 3, "demo_dahil": True}),
+    ("tukenen_biletler", {"saat": 168}),
+    ("servis_durumu", {}),
+    ("servis_durumu", {"servis": "backend"}),
+    ("disk_tahmini", {}),
+    ("son_hatalar", {"dakika": 60}),
+    ("api_performansi", {"dakika": 60}),
+    ("giris_durumu", {"saat": 24}),
 ]
 
 

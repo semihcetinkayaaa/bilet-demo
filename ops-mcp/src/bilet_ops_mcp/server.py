@@ -36,8 +36,12 @@ mcp = MCPServer(
     instructions=(
         "semihcetinkaya.tech bilet satış sisteminin operasyon araçları. Sadece okuma yapar. "
         "Cevaplar Türkçe ve telefonda okunacak kadar kısadır; sayıları olduğu gibi söyleyebilirsin. "
-        "Kullanıcı satışları sorarsa satis_ozeti, ödeme sorunlarını sorarsa odeme_durumu, "
-        "sunucuyu sorarsa sistem_sagligi, alarmları sorarsa aktif_alarmlar aracını kullan."
+        "Satışlar: satis_ozeti, bugunku_satis, en_cok_satanlar, satis_kirilimi, etkinlik_satisi. "
+        "Ödemeler ve siparişler: odeme_durumu, bekleyen_siparisler, son_siparisler, siparis_sorgula. "
+        "Etkinlikler: yaklasan_etkinlikler, etkinlik_doluluk, tukenen_biletler. "
+        "Üyeler: uyelik_ozeti, giris_durumu. "
+        "Sunucu: sistem_sagligi, servis_durumu, disk_tahmini. "
+        "Hatalar: son_hatalar, api_performansi, aktif_alarmlar."
     ),
     version="1.0.0",
 )
@@ -360,6 +364,10 @@ async def aktif_alarmlar() -> str:
     more = f" Toplam {len(alerts)} alarm var, ilk beşini söyledim." if len(alerts) > 5 else ""
     return f"{len(alerts)} tetiklenmiş alarm var. " + "; ".join(parts) + "." + more
 
+
+# Ek araçlar (satış detayları, sipariş operasyonu, servisler, hatalar/loglar, girişler).
+# Yukarıdaki yardımcılar tanımlandıktan sonra yüklenir; içe aktarılınca araçlar mcp'ye kaydolur.
+from bilet_ops_mcp import ek_araclar  # noqa: E402, F401
 
 # --------------------------------------------------------------------------- HTTP uygulaması
 
