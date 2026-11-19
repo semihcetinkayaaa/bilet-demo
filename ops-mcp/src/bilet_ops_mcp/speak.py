@@ -57,16 +57,40 @@ def ago(dt: datetime) -> str:
     return f"{hours // 24} gün önce"
 
 
-def compare(current: float, baseline: float) -> str:
-    """Normale göre değişimi söyler."""
+def period(hours: int) -> str:
+    """1 -> 'son bir saatte', 6 -> 'son 6 saatte', 24 -> 'son bir günde', 168 -> 'son 7 günde'."""
+    if hours == 1:
+        return "son bir saatte"
+    if hours == 24:
+        return "son bir günde"
+    if hours % 24 == 0:
+        return f"son {hours // 24} günde"
+    return f"son {hours} saatte"
+
+
+def baseline_label(hours: int) -> str:
+    """Karşılaştırmanın neye göre yapıldığı (bkz. server._baseline)."""
+    if hours < 24:
+        return "geçen haftanın aynı saatlerine"
+    return "önceki güne" if hours == 24 else f"önceki {hours // 24} güne" if hours % 24 == 0 else "önceki eşit döneme"
+
+
+def compare(current: float, baseline: float, against: str) -> str:
+    """Normale göre değişimi söyler. against: 'geçen haftanın aynı saatlerine' gibi (yönelme hâli)."""
     if baseline <= 0:
-        return "karşılaştırma için geçmiş veri yok"
+        return "için karşılaştırılacak geçmiş veri yok"
     ratio = current / baseline
     if 0.9 <= ratio <= 1.1:
-        return "geçen haftanın aynı saatleriyle hemen hemen aynı"
+        return f"{against} göre hemen hemen aynı"
     if ratio > 1:
-        return f"geçen haftanın aynı saatlerine göre {pct(ratio - 1)} fazla"
-    return f"geçen haftanın aynı saatlerine göre {pct(1 - ratio)} az"
+        return f"{against} göre {pct(ratio - 1)} fazla"
+    return f"{against} göre {pct(1 - ratio)} az"
+
+
+def spell_code(code: str) -> str:
+    """'BLT-7K3QX9' -> 'BLT, 7 K 3 Q X 9' (telefonda karakter karakter okunsun)."""
+    body = code.split("-", 1)[-1]
+    return "BLT, " + " ".join(body)
 
 
 def mask_name(name: str) -> str:

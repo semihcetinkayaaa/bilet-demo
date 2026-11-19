@@ -86,13 +86,23 @@ async def prom(expr: str) -> float | None:
         return float(res[0]["value"][1]) if res else None
 
 
-def _baseline(expr: str, hours: int) -> str:
-    """Geçen 7 günün aynı saat aralığındaki günlük ortalama."""
-    return f"""
+def _baseline(expr: str, hours: int, real: str) -> str:
+    """Karşılaştırma tabanı.
+
+    < 24 saat: geçen 7 günün aynı saat aralığının ortalaması (günün saatine göre adil).
+    >= 24 saat: hemen önceki eşit uzunluktaki dönem (ör. son 7 gün vs. ondan önceki 7 gün).
+    """
+    if hours < 24:
+        return f"""
 SELECT COALESCE({expr}, 0) / 7.0 FROM generate_series(1, 7) AS d
 JOIN orders o ON o.paid_at >= now() - make_interval(days => d, hours => %(h)s)
              AND o.paid_at <  now() - make_interval(days => d)
-WHERE o.status = 'paid' AND {{real}}"""
+WHERE o.status = 'paid' AND {real}"""
+    return f"""
+SELECT COALESCE({expr}, 0) FROM orders o
+WHERE o.status = 'paid' AND {real}
+  AND o.paid_at >= now() - make_interval(hours => 2 * %(h)s)
+  AND o.paid_at <  now() - make_interval(hours => %(h)s)"""
 
 
 def _hours(h: int) -> int:
@@ -105,9 +115,10 @@ def _hours(h: int) -> int:
 @mcp.tool(annotations=READ_ONLY)
 @friendly
 async def satis_ozeti(saat: int = 1, demo_dahil: bool = False) -> str:
-    """Son N saatin satışları: ciro, bilet ve sipariş sayısı, geçen haftanın aynı saatleriyle karşılaştırma.
+    """Son N saatin satışları: ciro, bilet ve sipariş sayısı, normale göre karşılaştırma.
 
-    saat: kaç saatlik dönem (1-168). demo_dahil: @example.com demo siparişlerini de say (varsayılan hayır).
+    saat: kaç saatlik dönem (1-168; ör. bugün için 24, bu hafta için 168).
+    demo_dahil: @example.com demo siparişlerini de say (varsayılan hayır).
     """
     h = _hours(saat)
     real = "TRUE" if demo_dahil else REAL
@@ -118,18 +129,14 @@ async def satis_ozeti(saat: int = 1, demo_dahil: bool = False) -> str:
                            AND {real.replace('o.', 'o2.')}), 0)
         FROM orders o
         WHERE o.status = 'paid' AND o.paid_at >= now() - make_interval(hours => %(h)s) AND {real}""", {"h": h})
-    base = await query(_baseline("SUM(o.total_amount)", h).format(real=real), {"h": h})
+    base = await query(_baseline("SUM(o.total_amount)", h, real), {"h": h})
     revenue, orders, tickets = float(cur[0][0]), int(cur[0][1]), int(cur[0][2])
-    period = "son bir saatte" if h == 1 else f"son {h} saatte"
+    period = s.period(h).capitalize()
     if orders == 0:
         note = "" if demo_dahil else " Demo siparişleri saymadım."
-        return f"{period.capitalize()} hiç ödenmiş sipariş yok.{note}"
-    return (f"{period.capitalize()} {num_orders(orders)}, {s.num(tickets)} bilet ve {s.tl(revenue)} ciro var. "
-            f"Bu, {s.compare(revenue, float(base[0][0]))}.")
-
-
-def num_orders(n: int) -> str:
-    return f"{s.num(n)} sipariş"
+        return f"{period} hiç ödenmiş sipariş yok.{note}"
+    return (f"{period} {s.num(orders)} sipariş, {s.num(tickets)} bilet ve {s.tl(revenue)} ciro var. "
+            f"Ciro {s.compare(revenue, float(base[0][0]), s.baseline_label(h))}.")
 
 
 @mcp.tool(annotations=READ_ONLY)
@@ -145,13 +152,13 @@ async def odeme_durumu(saat: int = 1) -> str:
     stuck = (await query(f"""
         SELECT COUNT(*) FROM orders o WHERE {REAL} AND o.status = 'pending'
           AND o.created_at < now() - interval '15 minutes' AND o.created_at >= now() - interval '1 day'"""))[0][0]
-    period = "son bir saatte" if h == 1 else f"son {h} saatte"
+    period = s.period(h).capitalize()
     if paid + failed == 0:
-        msg = f"{period.capitalize()} hiç ödeme denemesi olmadı."
+        msg = f"{period} hiç ödeme denemesi olmadı."
     else:
         rate = paid / (paid + failed)
         verdict = "durum normal" if rate >= 0.8 else "başarı oranı düşük, kontrol etmek gerekebilir"
-        msg = (f"{period.capitalize()} {s.num(paid + failed)} ödeme denemesinin {s.num(paid)} tanesi başarılı, "
+        msg = (f"{period} {s.num(paid + failed)} ödeme denemesinin {s.num(paid)} tanesi başarılı, "
                f"{s.num(failed)} tanesi reddedildi; başarı oranı {s.pct(rate)}, {verdict}.")
     if stuck:
         msg += f" Ayrıca {s.num(stuck)} sipariş 15 dakikadan uzun süredir ödeme adımında bekliyor."
@@ -165,22 +172,40 @@ async def etkinlik_doluluk(esik: float = 0.8, adet: int = 5) -> str:
 
     esik: bu oranın (0-1) üstündeki etkinlikleri listele. adet: en fazla kaç etkinlik.
     """
+    esik = max(0.0, min(esik, 1.0))
+    limit = max(1, min(adet, 10))
     rows = await query("""
         SELECT e.title, v.city, e.starts_at, SUM(tt.sold)::float / NULLIF(SUM(tt.quota), 0) AS fill,
-               COUNT(*) FILTER (WHERE tt.sold >= tt.quota) AS sold_out_types
+               array_remove(array_agg(CASE WHEN tt.sold >= tt.quota THEN tt.name END ORDER BY tt.price), NULL)
         FROM events e JOIN venues v ON v.id = e.venue_id JOIN ticket_types tt ON tt.event_id = e.id
         WHERE e.is_published AND e.starts_at >= now()
         GROUP BY e.id, e.title, v.city, e.starts_at
         HAVING SUM(tt.sold)::float / NULLIF(SUM(tt.quota), 0) >= %(esik)s
             OR COUNT(*) FILTER (WHERE tt.sold >= tt.quota) > 0
-        ORDER BY fill DESC LIMIT %(adet)s""", {"esik": max(0.0, min(esik, 1.0)), "adet": max(1, min(adet, 10))})
+        ORDER BY fill DESC, e.starts_at""", {"esik": esik})
+    full = [r for r in rows if (r[3] or 0) >= esik]
+    partial = [r for r in rows if (r[3] or 0) < esik]
     if not rows:
-        return f"Doluluğu {s.pct(esik)} üstünde ya da bileti tükenmiş yaklaşan etkinlik yok."
-    parts = []
-    for title, city, starts, fill, sold_out in rows:
-        extra = f", {sold_out} bilet tipi tükendi" if sold_out else ""
-        parts.append(f"{title}, {city}, {s.when(starts)}: {s.pct(fill or 0)} dolu{extra}")
-    return "Doluluğu yüksek etkinlikler: " + "; ".join(parts) + "."
+        return f"Doluluğu {s.pct(esik)} üstünde olan ya da bileti tükenmiş yaklaşan etkinlik yok."
+
+    def where(title, city, starts):
+        return f"{title}, {city}, {s.when(starts)}"
+
+    def sold_out_text(names):
+        return f"{', '.join(names)} biletleri tükendi" if names else ""
+
+    sentences = []
+    if full:
+        items = [f"{where(t, c, st)}, {s.pct(f)} dolu" + (f", {sold_out_text(n)}" if n else "")
+                 for t, c, st, f, n in full[:limit]]
+        sentences.append(f"Doluluğu {s.pct(esik)} üstünde {len(full)} etkinlik var: " + "; ".join(items))
+    else:
+        sentences.append(f"Doluluğu {s.pct(esik)} üstünde etkinlik yok")
+    if partial:
+        items = [f"{where(t, c, st)}: {sold_out_text(n)}" for t, c, st, f, n in partial[:limit]]
+        more = f", toplam {len(partial)} etkinlikte durum böyle" if len(partial) > limit else ""
+        sentences.append("Bazı etkinliklerde ise bir bilet tipi tükendi: " + "; ".join(items) + more)
+    return ". ".join(sentences) + "."
 
 
 @mcp.tool(annotations=READ_ONLY)
@@ -241,7 +266,7 @@ async def siparis_sorgula(kod: str) -> str:
         WHERE o.code = %(code)s
         GROUP BY o.id, e.id, v.id""", {"code": code})
     if not rows:
-        return f"{' '.join(code)} koduyla bir sipariş bulamadım."
+        return f"{s.spell_code(code)} koduyla bir sipariş bulamadım. Kodu tekrar kontrol eder misin?"
     status, total, name, created, member, title, city, starts, tickets = rows[0]
     who = "üye" if member else "misafir"
     return (f"Sipariş {s.STATUS.get(status, status)}. {title}, {city}, {s.when(starts)} için {s.num(tickets)} bilet, "
