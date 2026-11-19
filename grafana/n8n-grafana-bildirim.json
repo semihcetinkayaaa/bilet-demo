@@ -1,5 +1,5 @@
 {
-  "name": "Grafana → Bilet alarmları",
+  "name": "Grafana → Bilet alarmları (sesli arama)",
   "nodes": [
     {
       "id": "a1b2c3d4-0001-4000-8000-000000000001",
@@ -29,19 +29,82 @@
         0
       ],
       "parameters": {
-        "jsCode": "// Grafana webhook gövdesini okunur Türkçe mesajlara çevirir (her alarm için bir öğe).\nconst body = $input.first().json.body ?? $input.first().json;\nconst SEV = {\n  kritik: { icon: '🔴', label: 'KRİTİK' },\n  uyari:  { icon: '🟠', label: 'UYARI' },\n  bilgi:  { icon: '🔵', label: 'BİLGİ' },\n};\nconst fmtTime = (iso) => new Date(iso).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' });\n\nreturn (body.alerts ?? []).map((a) => {\n  const sev = SEV[a.labels?.onem] ?? { icon: '⚪', label: (a.labels?.onem ?? '').toUpperCase() };\n  const resolved = a.status === 'resolved';\n  const title = resolved\n    ? `✅ Düzeldi · ${a.labels?.alertname ?? 'Alarm'}`\n    : `${sev.icon} ${sev.label} · ${a.labels?.alertname ?? 'Alarm'}`;\n  const lines = [\n    title,\n    a.annotations?.summary ?? '',\n    resolved ? '' : (a.annotations?.description ?? ''),\n    `🕒 ${fmtTime(resolved ? a.endsAt : a.startsAt)}`,\n    a.dashboardURL || a.generatorURL ? `🔗 ${a.dashboardURL || a.generatorURL}` : '',\n  ].filter(Boolean);\n  return {\n    json: {\n      durum: resolved ? 'duzeldi' : 'tetiklendi',\n      onem: a.labels?.onem ?? '',\n      baslik: title,\n      mesaj: lines.join('\\n'),\n      alarm: a.labels?.alertname ?? '',\n      zaman: resolved ? a.endsAt : a.startsAt,\n    },\n  };\n});"
+        "jsCode": "// Grafana webhook gövdesini okunur Türkçe mesajlara çevirir (her alarm için bir öğe).\nconst body = $input.first().json.body ?? $input.first().json;\nconst SEV = {\n  kritik: { icon: '🔴', label: 'KRİTİK' },\n  uyari:  { icon: '🟠', label: 'UYARI' },\n  bilgi:  { icon: '🔵', label: 'BİLGİ' },\n};\nconst fmtTime = (iso) => new Date(iso).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' });\n\nreturn (body.alerts ?? []).map((a) => {\n  const sev = SEV[a.labels?.onem] ?? { icon: '⚪', label: (a.labels?.onem ?? '').toUpperCase() };\n  const resolved = a.status === 'resolved';\n  const title = resolved\n    ? `✅ Düzeldi · ${a.labels?.alertname ?? 'Alarm'}`\n    : `${sev.icon} ${sev.label} · ${a.labels?.alertname ?? 'Alarm'}`;\n  const lines = [\n    title,\n    a.annotations?.summary ?? '',\n    resolved ? '' : (a.annotations?.description ?? ''),\n    `🕒 ${fmtTime(resolved ? a.endsAt : a.startsAt)}`,\n    a.dashboardURL || a.generatorURL ? `🔗 ${a.dashboardURL || a.generatorURL}` : '',\n  ].filter(Boolean);\n  return {\n    json: {\n      durum: resolved ? 'duzeldi' : 'tetiklendi',\n      onem: a.labels?.onem ?? '',\n      baslik: title,\n      mesaj: lines.join('\\n'),\n      alarm: a.labels?.alertname ?? '',\n      zaman: resolved ? a.endsAt : a.startsAt,\n      ozet: a.annotations?.summary ?? '',\n      aciklama: a.annotations?.description ?? '',\n    },\n  };\n});"
       }
     },
     {
       "id": "a1b2c3d4-0003-4000-8000-000000000003",
-      "name": "Buraya bildirim kanalını bağla",
+      "name": "Yazılı bildirim kanalı (isteğe bağlı)",
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
       "position": [
         520,
+        -200
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "a1b2c3d4-0004-4000-8000-000000000004",
+      "name": "Arama kararı",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        100
+      ],
+      "parameters": {
+        "jsCode": "// Hangi alarmlarda telefonla aranacağına karar verir ve ElevenLabs arama isteğini hazırlar.\n// ====== AYARLAR: değerleri n8n içinde doldurun (bu dosyayı gerçek değerlerle git'e göndermeyin) ======\nconst AYAR = {\n  agentId: 'AGENT_ID_BURAYA',                  // ElevenLabs → agent ayarları (agent_...)\n  telefonNumarasiId: 'PHONE_NUMBER_ID_BURAYA', // ElevenLabs → Phone Numbers → numara kimliği (phnum_...)\n  aranacakNumara: '+90XXXXXXXXXX',              // aranacak cep telefonu, +90 ile başlayan\n  kullaniciAdi: 'ADINIZ',                       // agent sizi bu adla selamlar\n  hat: 'twilio',                                // numara Twilio'dan ise 'twilio', SIP trunk ise 'sip'\n  arananOnemler: ['kritik'],                    // 'uyari' eklenirse uyarılarda da arar\n  ayniAlarmTekrarDk: 60,                        // aynı alarm için en erken kaç dakika sonra tekrar aransın\n};\n// ======================================================================================================\n\nconst store = $getWorkflowStaticData('global');  // sadece aktif (production) çalışmalarda kalıcıdır\nstore.sonArama = store.sonArama ?? {};\nconst now = Date.now();\n\nconst adaylar = $input.all().map((i) => i.json)\n  .filter((a) => a.durum === 'tetiklendi' && AYAR.arananOnemler.includes(a.onem))\n  .filter((a) => !(store.sonArama[a.alarm] && now - store.sonArama[a.alarm] < AYAR.ayniAlarmTekrarDk * 60000));\n\n// Aynı alarm tek mesajda birden çok kez gelebilir: alarm adına göre tekilleştir\nconst alarmlar = [...new Map(adaylar.map((a) => [a.alarm, a])).values()];\nif (alarmlar.length === 0) return [];  // aranacak bir şey yok, akış burada biter\n\nfor (const a of alarmlar) store.sonArama[a.alarm] = now;\nfor (const [k, t] of Object.entries(store.sonArama)) if (now - t > 24 * 3600000) delete store.sonArama[k];\n\n// Telefonda okunacak metin: emoji ve bağlantıları çıkar\nconst temizle = (s) => String(s ?? '')\n  .replace(/[\\u{1F000}-\\u{1FAFF}\\u{2600}-\\u{27BF}\\u{FE0F}]/gu, '')\n  .replace(/https?:\\/\\/\\S+/g, '')\n  .replace(/\\s+/g, ' ').trim();\nconst saat = (iso) => new Date(iso).toLocaleString('tr-TR', {\n  timeZone: 'Europe/Istanbul', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit',\n});\n\nconst ilk = alarmlar[0];\nconst istek = {\n  agent_id: AYAR.agentId,\n  agent_phone_number_id: AYAR.telefonNumarasiId,\n  to_number: AYAR.aranacakNumara,\n  conversation_initiation_client_data: {\n    dynamic_variables: {\n      kullanici_adi: AYAR.kullaniciAdi,\n      alarm_adi: alarmlar.length === 1 ? ilk.alarm : `${ilk.alarm} ve ${alarmlar.length - 1} alarm daha`,\n      alarm_zamani: saat(ilk.zaman),\n      alarm_detayi: alarmlar.map((a) => `${a.alarm}: ${temizle(a.ozet)} ${temizle(a.aciklama)}`.trim())\n        .join(' | ').slice(0, 1500),\n      onem_seviyesi: ilk.onem,\n    },\n  },\n};\nconst url = AYAR.hat === 'sip'\n  ? 'https://api.elevenlabs.io/v1/convai/sip-trunk/outbound-call'\n  : 'https://api.elevenlabs.io/v1/convai/twilio/outbound-call';\n\nreturn [{ json: { url, istek, alarmlar: alarmlar.map((a) => a.alarm) } }];\n"
+      }
+    },
+    {
+      "id": "a1b2c3d4-0005-4000-8000-000000000005",
+      "name": "ElevenLabs ile ara",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        780,
+        100
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput",
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.istek) }}",
+        "options": {
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "a1b2c3d4-0006-4000-8000-000000000006",
+      "name": "Arama başlatıldı",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1040,
         0
       ],
       "parameters": {}
+    },
+    {
+      "id": "a1b2c3d4-0007-4000-8000-000000000007",
+      "name": "Arama başarısız",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        200
+      ],
+      "parameters": {
+        "jsCode": "// Arama başlatılamadı: bekleme kilidini kaldır ki Grafana bir sonraki hatırlatmada tekrar arayabilsin.\nconst store = $getWorkflowStaticData('global');\nconst alarmlar = $('Arama kararı').first().json.alarmlar ?? [];\nfor (const a of alarmlar) delete store.sonArama?.[a];\nreturn [{ json: { arama: 'başarısız', alarmlar, hata: $input.first().json.error ?? $input.first().json } }];\n"
+      }
     }
   ],
   "connections": {
@@ -60,7 +123,41 @@
       "main": [
         [
           {
-            "node": "Buraya bildirim kanalını bağla",
+            "node": "Yazılı bildirim kanalı (isteğe bağlı)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Arama kararı",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Arama kararı": {
+      "main": [
+        [
+          {
+            "node": "ElevenLabs ile ara",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ElevenLabs ile ara": {
+      "main": [
+        [
+          {
+            "node": "Arama başlatıldı",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Arama başarısız",
             "type": "main",
             "index": 0
           }
@@ -71,5 +168,31 @@
   "settings": {
     "executionOrder": "v1"
   },
-  "pinData": {}
+  "pinData": {
+    "Grafana webhook": [
+      {
+        "json": {
+          "body": {
+            "status": "firing",
+            "alerts": [
+              {
+                "status": "firing",
+                "labels": {
+                  "alertname": "Satış durdu",
+                  "onem": "kritik",
+                  "proje": "bilet"
+                },
+                "annotations": {
+                  "summary": "Son 30 dakikada hiç ödenmiş sipariş yok.",
+                  "description": "Normalde bu saatte siparişler geliyor. Ödeme ve backend kontrol edilmeli."
+                },
+                "startsAt": "2026-11-19T14:32:00Z",
+                "endsAt": "0001-01-01T00:00:00Z"
+              }
+            ]
+          }
+        }
+      }
+    ]
+  }
 }

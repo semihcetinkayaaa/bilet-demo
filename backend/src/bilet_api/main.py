@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from bilet_api import auth, events, orders
+from bilet_api import alarm_test, auth, events, orders
 from bilet_api.config import settings
 from bilet_api.db import get_session
 from bilet_api.logging_setup import RequestLogMiddleware, setup_logging
@@ -38,6 +38,7 @@ app.include_router(events.router)
 app.include_router(orders.router)
 app.include_router(orders.me_router)
 app.include_router(auth.router)
+app.include_router(alarm_test.router)
 
 SessionDep = Annotated[Session, Depends(get_session)]
 

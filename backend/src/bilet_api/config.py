@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     smtp_from: str = ""  # ör. "semihcetinkaya.tech <bilet@semihcetinkaya.tech>"
     smtp_starttls: bool = True
 
+    # Alarm deneme uçları (/test/alarm). Boş ya da 32 karakterden kısaysa uçlar kapalıdır (404).
+    alarm_test_key: str = ""
+
     @field_validator("database_url")
     @classmethod
     def _use_psycopg_driver(cls, v: str) -> str:
