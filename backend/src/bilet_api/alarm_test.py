@@ -47,13 +47,13 @@ class Senaryo:
 
 SENARYOLAR: dict[str, Senaryo] = {
     "5xx": Senaryo("Backend 5xx hataları", "kritik", 10,
-                   "5 dakikada 5'ten fazla 500 hatası. Kritik: telefonla aranırsınız."),
+                   "1 dakikada 5'ten fazla 500 hatası. Kritik: telefonla aranırsınız."),
     "veritabani": Senaryo("Veritabanı bağlantı hatası", "kritik", 1,
                           "Veritabanına bağlanılamadı log satırı. Kritik: telefonla aranırsınız."),
     "kaba-kuvvet": Senaryo("Olası kaba kuvvet saldırısı", "kritik", 40,
-                           "5 dakikada 30'dan fazla başarısız giriş. Kritik: telefonla aranırsınız."),
+                           "1 dakikada 15'ten fazla başarısız giriş. Kritik: telefonla aranırsınız."),
     "hesap-kilidi": Senaryo("Çok sayıda hesap kilitlendi", "uyari", 5,
-                            "15 dakikada 3'ten fazla hesap kilidi. Uyarı: arama yapılmaz."),
+                            "5 dakikada 3'ten fazla hesap kilidi. Uyarı: arama yapılmaz."),
     "eposta": Senaryo("Onay e-postası gönderilemedi", "uyari", 1,
                       "E-posta gönderilemedi log satırı. Uyarı: arama yapılmaz."),
     "yavas": Senaryo("API yavaşladı", "uyari", 100,
@@ -102,7 +102,7 @@ def _menu(anahtar: str) -> HTMLResponse:
         f'{html.escape(s.aciklama)}</span></a>'
         for ad, s in SENARYOLAR.items()
     )
-    return _sayfa("<h1>Alarm testi</h1><p>Bir senaryoya dokunun; alarm 1-2 dakikada tetiklenir.</p>" + satirlar)
+    return _sayfa("<h1>Alarm testi</h1><p>Bir senaryoya dokunun; alarm yaklaşık 30 saniyede tetiklenir, 1 dakikada kapanır.</p>" + satirlar)
 
 
 def _sayfa(icerik: str, status_code: int = 200) -> HTMLResponse:
@@ -147,13 +147,13 @@ def tetikle(
     n = adet or s.varsayilan_adet
     _uret(senaryo, n)
     govde = {"senaryo": senaryo, "uretilen_satir": n, "beklenen_alarm": s.alarm, "onem": s.onem,
-             "not": "Grafana alarmı yaklaşık 1-2 dakika içinde tetiklenir. " + s.aciklama}
+             "not": "Grafana alarmı yaklaşık 30 saniye içinde tetiklenir. " + s.aciklama}
     # 5xx senaryosunda bu istek de gerçekten 500 döner (o da sayılır)
     durum = 500 if senaryo == "5xx" else 200
     if anahtar and not x_test_key:  # telefondan açıldı: okunur sayfa
         arama = "Kritik alarm: telefonunuz birazdan çalacak." if s.onem == "kritik" else "Uyarı seviyesi: arama yapılmaz."
         return _sayfa(
-            f'<h1>✅ {html.escape(s.alarm)}</h1><p>{n} log satırı üretildi. Grafana alarmı 1-2 dakika içinde '
+            f'<h1>✅ {html.escape(s.alarm)}</h1><p>{n} log satırı üretildi. Grafana alarmı yaklaşık 30 saniye içinde '
             f"tetiklenir.</p><p><b>{arama}</b></p><p>{html.escape(s.aciklama)}</p>"
             f'<a class="b" href="/test/alarm?anahtar={quote(anahtar, safe="")}"><b>← Menüye dön</b></a>',
             status_code=durum,
